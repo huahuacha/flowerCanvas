@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -10,6 +11,80 @@ import (
 
 	"yingce/backend/internal/model"
 )
+
+func TestCloudAgentPiModelRetriesEmptyOutputWithThinkingOff(t *testing.T) {
+	s, db, _ := agentMediaFixture(t)
+	s.cloudAgentModelRetryBase = 10 * time.Millisecond
+	req := agentTestRequest()
+	req.ReasoningMode = "high"
+	root, err := s.CreateCloudAgentRun("user", req, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		result, err := s.cloudAgentPiModel(ctx, "user", root.ID, map[string]json.RawMessage{
+			"messages":      json.RawMessage(`[{"role":"user","content":"继续"}]`),
+			"thinkingLevel": json.RawMessage(`"medium"`),
+		})
+		response, _ := result.(map[string]any)
+		if err == nil && response["text"] != "已恢复" {
+			err = fmt.Errorf("unexpected model result: %#v", result)
+		}
+		done <- err
+	}()
+
+	previous := root.ID
+	for _, level := range []string{"high", "off"} {
+		var task model.Task
+		for task.ID == "" {
+			_, state := agentInterjectionState(t, s, root.ID)
+			if state.ActiveTaskID != "" && state.ActiveTaskID != previous {
+				if err := db.First(&task, "id = ?", state.ActiveTaskID).Error; err != nil {
+					t.Fatal(err)
+				}
+				break
+			}
+			select {
+			case err := <-done:
+				t.Fatalf("model bridge returned before scheduling %q: %v", level, err)
+			case <-ctx.Done():
+				t.Fatalf("model step with thinking level %q not scheduled", level)
+			case <-time.After(20 * time.Millisecond):
+			}
+		}
+		var input struct {
+			TextOptions struct {
+				ThinkingLevel string `json:"thinkingLevel"`
+			} `json:"textOptions"`
+		}
+		if err := json.Unmarshal([]byte(task.InputJSON), &input); err != nil {
+			t.Fatal(err)
+		}
+		if got := input.TextOptions.ThinkingLevel; got != level {
+			t.Fatalf("task thinking level = %q, want %q", got, level)
+		}
+		updates := map[string]any{"status": model.TaskStatusFailed, "error": "画布 Agent 接口没有返回内容"}
+		if level == "off" {
+			updates = map[string]any{"status": model.TaskStatusSucceeded, "result_json": `{"text":"已恢复","toolCalls":[]}`}
+		}
+		if err := db.Model(&model.Task{}).Where("id = ?", task.ID).Updates(updates).Error; err != nil {
+			t.Fatal(err)
+		}
+		previous = task.ID
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal("model bridge did not return the recovered response")
+	}
+}
 
 func TestCloudAgentPiCompactionSummaryUsesStandardStepWithoutAssistantEvent(t *testing.T) {
 	s, db, _ := agentMediaFixture(t)

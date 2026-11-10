@@ -107,6 +107,7 @@ func (s *Service) cloudAgentPiModel(ctx context.Context, userID, runID string, p
 	// 纠偏上下文重做这一步，而不是把整轮判死。次数与临时故障共用同一个上限。
 	var lastErr error
 	var correction []map[string]any
+	thinkingLevel := request.ThinkingLevel
 	for attempt := 0; attempt <= cloudAgentModelStepRetries; attempt++ {
 		if attempt > 0 {
 			base := s.cloudAgentModelRetryBase
@@ -121,13 +122,17 @@ func (s *Service) cloudAgentPiModel(ctx context.Context, userID, runID string, p
 			case <-time.After(delay):
 			}
 		}
-		result, retryable, err := s.runCloudAgentModelStep(ctx, userID, runID, request.Messages, request.ThinkingLevel, correction...)
+		result, retryable, err := s.runCloudAgentModelStep(ctx, userID, runID, request.Messages, thinkingLevel, correction...)
 		if err == nil {
 			return result, nil
 		}
 		lastErr = err
 		if !retryable {
 			return nil, err
+		}
+		if errors.Is(err, errCloudAgentEmptyModelOutput) {
+			// 只在当前步骤的重试中关闭思考，下一个步骤仍使用原档位。
+			thinkingLevel = ThinkingLevelOff
 		}
 		var outputLimitErr *cloudAgentPiOutputLimitError
 		if errors.As(err, &outputLimitErr) {
@@ -177,6 +182,8 @@ var errCloudAgentAwaitingApproval = errors.New("run is waiting for approval")
 // errCloudAgentTruncatedToolArguments 标记"模型返回的工具参数不是完整 JSON"：
 // 调用未执行，可以带纠偏上下文重做同一步。
 var errCloudAgentTruncatedToolArguments = errors.New("truncated tool arguments")
+
+var errCloudAgentEmptyModelOutput = errors.New("empty model output")
 
 // cloudAgentPiOutputLimitError 标记整批未执行的输出超限，向有限重试提供具体纠正原因。
 type cloudAgentPiOutputLimitError struct {
@@ -350,11 +357,9 @@ func (s *Service) runCloudAgentModelStep(ctx context.Context, userID, runID stri
 	taskID := state.ActiveTaskID
 	task, err := s.waitCloudAgentTask(ctx, taskID)
 	if err != nil {
-		truncated := false
-		if failed, lookupErr := s.repo.Task(taskID); lookupErr == nil && failed != nil && failed.Status != model.TaskStatusSucceeded {
-			truncated = cloudAgentTruncatedToolArguments(failed)
-		}
-		retryable := ctx.Err() == nil && (truncated || s.cloudAgentModelTaskRetryable(taskID))
+		failed, _ := s.repo.Task(taskID)
+		truncated := failed != nil && failed.Status != model.TaskStatusSucceeded && cloudAgentTruncatedToolArguments(failed)
+		retryable := ctx.Err() == nil && (truncated || s.cloudAgentModelTaskRetryable(failed))
 		if retryable {
 			// 释放失败的步骤，下一次重试才能重新入队。
 			if releaseErr := s.finishCloudAgentPiModelStep(userID, runID, taskID, "", cloudAgentStepReasoning{}); releaseErr != nil {
@@ -363,6 +368,8 @@ func (s *Service) runCloudAgentModelStep(ctx context.Context, userID, runID stri
 		}
 		if truncated {
 			err = fmt.Errorf("%w: %v", errCloudAgentTruncatedToolArguments, err)
+		} else if retryable && cloudAgentEmptyModelOutput(failed) {
+			err = fmt.Errorf("%w: %w", errCloudAgentEmptyModelOutput, err)
 		}
 		return nil, retryable, err
 	}
@@ -567,9 +574,8 @@ func cloudAgentTransientModelFailure(call model.ApiCallLog) bool {
 // cloudAgentModelTaskRetryable 按上游真实 HTTP 状态和结构化业务错误判断失败是否是临时性的：
 // 5xx、429、408、明确的临时业务错误和没有拿到任何响应的网络错误可以重试；
 // 参数、鉴权、模型不存在和内容审核错误不会重试。
-func (s *Service) cloudAgentModelTaskRetryable(taskID string) bool {
-	task, err := s.repo.Task(taskID)
-	if err != nil || task == nil || task.Status == model.TaskStatusSucceeded || task.Status == model.TaskStatusCancelled {
+func (s *Service) cloudAgentModelTaskRetryable(task *model.Task) bool {
+	if task == nil || task.Status == model.TaskStatusSucceeded || task.Status == model.TaskStatusCancelled {
 		return false
 	}
 	if cloudAgentEmptyModelOutput(task) || cloudAgentStepTimedOut(task) {
@@ -579,7 +585,7 @@ func (s *Service) cloudAgentModelTaskRetryable(taskID string) bool {
 	if diagnostic := taskExecutionDiagnostic(task); diagnostic != nil && diagnostic.Code == string(ReasonUpstreamDNSFailed) {
 		return true
 	}
-	call, err := s.repo.LatestAPICallForTask(taskID)
+	call, err := s.repo.LatestAPICallForTask(task.ID)
 	if err != nil {
 		return false
 	}
