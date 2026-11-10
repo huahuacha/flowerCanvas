@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { creationMessageNeedsResultSync, reconcileCreationTaskMessages, type PersistedCreationTask } from "@/pages/create/creation-conversations";
+import { creationMessageNeedsResultSync, materializeCreationTaskResults, reconcileCreationTaskMessages, type PersistedCreationTask } from "@/pages/create/creation-conversations";
 import type { CreationConversation, CreationMessage } from "@/pages/create/creation-types";
 import { pendingCreationTaskIds } from "@/services/creation-conversation-store";
 import { recoverCreationTextTask } from "@/services/creation-text-task-recovery";
@@ -37,6 +37,45 @@ describe("首页创作：页面没跟上 ≠ 生成失败", () => {
         const next = messageOf(reconcileCreationTaskMessages(runtime, conversations(legacy), [task({ status: "succeeded", creationResultStorageKeys: ["resource:video-1"] })]));
         expect(next).toMatchObject({ status: "done", content: "视频已生成", resultStorageKeys: ["resource:video-1"] });
         expect(next.error).toBeUndefined();
+    });
+
+    test("没有 Web Locks 时，已保存的任务通过服务器资源恢复原对话", async () => {
+        const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+        const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+        Object.defineProperty(globalThis, "window", { configurable: true, value: {} });
+        Object.defineProperty(globalThis, "navigator", { configurable: true, value: {} });
+        let materializationAttempts = 0;
+        const taskRuntime = {
+            recoverCreationTextTask,
+            runGenerationConsumer: (_signal: AbortSignal | undefined, run: (signal: AbortSignal) => Promise<unknown>) => run(new AbortController().signal),
+            materializeGenerationTaskAssets: async () => {
+                materializationAttempts++;
+                throw new Error("Web Locks unavailable");
+            },
+            projectGenerationTaskResult: (snapshot: PersistedCreationTask) => snapshot,
+        } as unknown as typeof runtime;
+        const saved = task({
+            type: "canvas_image",
+            status: "succeeded",
+            mediaStage: "completed",
+            clientContext: { conversationId: "conversation-1", messageId: "assistant-1" },
+            outputs: [{ outputIndex: 0, mediaType: "image", providerArtifactRef: "resource:image-1" }],
+        });
+        try {
+            const recovered = await materializeCreationTaskResults(taskRuntime, [saved]);
+            const source = conversations(assistant({ mode: "image", status: "error", errorKind: "sync" }));
+            expect(messageOf(reconcileCreationTaskMessages(taskRuntime, source, recovered))).toMatchObject({ status: "done", resultStorageKeys: ["resource:image-1"] });
+            expect(materializationAttempts).toBe(0);
+
+            const [unsaved] = await materializeCreationTaskResults(taskRuntime, [{ ...saved, mediaStage: "register" }]);
+            expect(unsaved.creationResultStorageKeys).toBeUndefined();
+            expect(materializationAttempts).toBe(1);
+        } finally {
+            if (windowDescriptor) Object.defineProperty(globalThis, "window", windowDescriptor);
+            else Reflect.deleteProperty(globalThis, "window");
+            if (navigatorDescriptor) Object.defineProperty(globalThis, "navigator", navigatorDescriptor);
+            else Reflect.deleteProperty(globalThis, "navigator");
+        }
     });
 
     test("任务成功但结果暂时读不出来：保持“结果待同步”，不引导重新生成", () => {

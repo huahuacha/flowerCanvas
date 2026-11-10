@@ -76,6 +76,7 @@ import {
     newConversation,
     newMessage,
     reconcileCreationTaskMessages,
+    savedCreationTaskStorageKeys,
     type PersistedCreationTask,
 } from "./creation-conversations";
 import { CreationComposer, CreationEmptySuggest, CreationHistoryDrawer, CreationMessageView, CreationModeCard, CreationWorkspaceToolbar, creationAssetCategoryLabels } from "./creation-workspace";
@@ -472,7 +473,11 @@ export default function CreatePage() {
             const persistedTasks = await materializeCreationTaskResults(runtime, contextual, signal);
             if (signal.aborted) return persistedTasks;
             const attachable = persistedTasks.filter(
-                (task) => task.status === "succeeded" && Boolean(task.clientContext?.conversationId && task.clientContext.messageId) && Boolean(task.creationResultUrls?.length || task.creationResultStorageKeys?.length),
+                (task) =>
+                    task.status === "succeeded" &&
+                    Boolean(task.clientContext?.conversationId && task.clientContext.messageId) &&
+                    task.outputs?.some((output) => output.materializedAssetId) &&
+                    Boolean(task.creationResultUrls?.length || task.creationResultStorageKeys?.length),
             );
             for (const task of attachable) {
                 const conversationId = task.clientContext!.conversationId!;
@@ -950,6 +955,13 @@ export default function CreatePage() {
         setBusy(true);
         const controller = new AbortController();
         const requestLifecycle = runtime.beginGenerationConsumer(controller.signal);
+        const attachSavedResult = async (task: GenerationTask) => {
+            const keys = savedCreationTaskStorageKeys(runtime, task);
+            if (!keys.length) return 0;
+            requestLifecycle.signal.throwIfAborted();
+            await updateOriginAssistant((item) => ({ ...item, resultStorageKeys: [...new Set([...(item.resultStorageKeys || []), ...keys])] }));
+            return keys.length;
+        };
         abortRef.current = controller;
         const normalizedImage =
             mode === "image"
@@ -1032,6 +1044,8 @@ export default function CreatePage() {
                             batchIndex,
                             batchCount: taskCount,
                         });
+                        const savedCount = await attachSavedResult(task);
+                        if (savedCount) return savedCount;
                         const materialized = await runtime.consumeGenerationTaskMessage(
                             task,
                             assistantMessage.id,
@@ -1051,20 +1065,20 @@ export default function CreatePage() {
                         );
                         const urls = runtime.generationTaskMaterializedUrls(materialized);
                         if (!urls.length) throw new Error(t("create.page.imageResultUnavailable"));
-                        return urls;
+                        return urls.length;
                     }),
                 );
-                const resultUrls = storedImages.flatMap((entry) => (entry.status === "fulfilled" ? entry.value : []));
+                const doneCount = storedImages.reduce((total, entry) => total + (entry.status === "fulfilled" ? entry.value : 0), 0);
                 const resourceFailures = storedImages.filter((entry): entry is PromiseRejectedResult => entry.status === "rejected");
                 const failedCount = taskFailures.length + resourceFailures.length;
-                if (!resultUrls.length) {
+                if (!doneCount) {
                     // 只要有一张图是“页面没跟上”而不是后端确认失败，就交给恢复监听继续跟进，而不是整条判失败。
                     const reasons = [...taskFailures, ...resourceFailures].map((entry) => entry.reason);
                     const reason = reasons.find((candidate) => !runtime.isGenerationTaskTerminalError(candidate)) ?? reasons[0];
                     throw reason instanceof Error ? reason : new Error(t("create.page.noImageResult"));
                 }
-                if (failedCount) toast.warning(t("create.page.imagesPartiallyGenerated", { done: resultUrls.length, failed: failedCount }));
-                updateOriginAssistant((item) => ({ ...item, content: failedCount ? t("create.status.imagesPartiallyGenerated", { done: resultUrls.length, failed: failedCount }) : t("create.status.imageGenerated") }));
+                if (failedCount) toast.warning(t("create.page.imagesPartiallyGenerated", { done: doneCount, failed: failedCount }));
+                updateOriginAssistant((item) => ({ ...item, content: failedCount ? t("create.status.imagesPartiallyGenerated", { done: doneCount, failed: failedCount }) : t("create.status.imageGenerated") }));
             } else {
                 const result = await runtime.runGenerationOperationOnce(retryContext?.clientOperationId, () =>
                     runtime.runBackendGenerationTask({
@@ -1084,6 +1098,10 @@ export default function CreatePage() {
                 const taskId = Array.from(boundTaskIds)[0];
                 if (!taskId) throw new Error(t("create.page.missingTaskId"));
                 const task = completedCreationGenerationTask(runtime, { taskId, task: boundTasks.get(taskId), mode: "video", prompt: expandedPrompt, result, conversationId: activeConversation.id, messageId: assistantMessage.id });
+                if (await attachSavedResult(task)) {
+                    await updateOriginAssistant((item) => ({ ...item, status: "done", content: t("create.status.videoGenerated") }));
+                    return;
+                }
                 const materialized = await runtime.consumeGenerationTaskMessage(
                     task,
                     assistantMessage.id,
