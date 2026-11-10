@@ -55,6 +55,7 @@ type TextMessage struct {
 }
 
 type Config struct {
+	LumiVideoParameters   string                    `json:"lumiVideoParameters,omitempty"`
 	ChannelID             string                    `json:"channelId"`
 	ChannelModelKey       string                    `json:"channelModelKey,omitempty"`
 	PriceTierID           string                    `json:"priceTierId,omitempty"`

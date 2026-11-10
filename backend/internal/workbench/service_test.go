@@ -144,6 +144,22 @@ func TestWorkbenchTaskRejectsForeignResourcesAndPreservesRoleAndPresetSnapshot(t
 	}
 }
 
+func TestWorkbenchVideoAcceptsLumiOptions(t *testing.T) {
+	const options = `{"draft":true,"resolution":"480p","seed":0,"generate_audio":false}`
+	got, err := normalizeTaskParameters(KindVideo, map[string]any{"lumiVideoParameters": options})
+	if err != nil || got["lumiVideoParameters"] != options {
+		t.Fatalf("video parameters = %#v, error = %v", got, err)
+	}
+	for _, invalid := range []any{false, "null", "[]"} {
+		if _, err := normalizeTaskParameters(KindVideo, map[string]any{"lumiVideoParameters": invalid}); err == nil {
+			t.Fatalf("video accepted invalid Lumi parameters: %#v", invalid)
+		}
+	}
+	if _, err := normalizeTaskParameters(KindImage, map[string]any{"lumiVideoParameters": options}); err == nil {
+		t.Fatal("image accepted video parameters")
+	}
+}
+
 func TestWorkbenchTaskRejectsUnknownParametersAndClientConfig(t *testing.T) {
 	s, db, _ := newWorkbenchTest(t)
 	tool := model.WorkbenchTool{ID: "tool", Kind: KindImage, Name: "Image", Enabled: true, CapabilityJSON: "{}"}

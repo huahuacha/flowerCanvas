@@ -485,7 +485,7 @@ export function defaultModelCapabilityConfig(protocol?: ModelProtocol, model = "
     if (protocol === "dashscope-wan3-video") {
         video.generateAudio = { supported: true, default: true };
     }
-    if (protocol === "volcengine-ark-video" || protocol === "volcengine-ark-agent-plan-video" || protocol === "newapi-channel-1" || protocol === "newapi-channel-2") {
+    if (protocol === "lumi-ark-video" || protocol === "volcengine-ark-video" || protocol === "volcengine-ark-agent-plan-video" || protocol === "newapi-channel-1" || protocol === "newapi-channel-2") {
         video.references.maxVideos = 3;
         video.references.maxAudios = 3;
         video.references.maxVideoBytes = 200 * 1024 * 1024;
@@ -494,10 +494,14 @@ export function defaultModelCapabilityConfig(protocol?: ModelProtocol, model = "
         video.references.maxAudioDurationSeconds = 15;
         video.generateAudio = { supported: true, default: true };
     }
-    if (protocol === "volcengine-ark-video" || protocol === "volcengine-ark-agent-plan-video" || protocol === "newapi-channel-1") video.resolutions = ["480p", "720p", "1080p"];
-    if (protocol === "volcengine-ark-video" || protocol === "volcengine-ark-agent-plan-video") {
+    if (protocol === "lumi-ark-video" || protocol === "volcengine-ark-video" || protocol === "volcengine-ark-agent-plan-video" || protocol === "newapi-channel-1") video.resolutions = ["480p", "720p", "1080p"];
+    if (protocol === "lumi-ark-video" || protocol === "volcengine-ark-video" || protocol === "volcengine-ark-agent-plan-video") {
         video.watermark = { supported: true, default: false };
         video.operations.push("reference_to_video", "audio_to_video");
+    }
+    if (protocol === "lumi-ark-video") {
+        video.ratios.push("adaptive");
+        if (model.includes("2.5") || model.includes("2-5")) video.duration = { selection: "range", min: 4, max: 30, step: 1, default: 5 };
     }
     if (protocol === "novita-video") {
         video.references.maxImages = 1;

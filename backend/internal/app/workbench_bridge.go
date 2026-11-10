@@ -152,6 +152,7 @@ func (s *Service) resolveWorkbenchProviderConfig(userID, kind, operation, modelN
 		for inputKey, configKey := range map[string]string{
 			"seconds": "videoSeconds", "ratio": "size", "resolution": "vquality",
 			"generateAudio": "videoGenerateAudio", "watermark": "videoWatermark",
+			"lumiVideoParameters": "lumiVideoParameters",
 		} {
 			if value, exists := parameters[inputKey]; exists {
 				config[configKey] = providerConfigOptionValue(value)

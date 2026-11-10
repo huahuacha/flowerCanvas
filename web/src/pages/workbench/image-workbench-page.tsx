@@ -1,3 +1,5 @@
+import { LumiVideoSettings } from "@/components/lumi-video-settings";
+import { lumiOptionsForConfig, projectLumiConfig } from "@/lib/lumi-video";
 import { App, Button } from "antd";
 import { Clapperboard, Image as ImageIcon, RotateCcw } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent } from "react";
@@ -25,7 +27,7 @@ import { resourceStorageKey, uploadResourceFile } from "@/services/api/resources
 import { cancelGenerationTask, createGenerationTask, queryGenerationTask, retryGenerationTask, type GenerationTask } from "@/services/api/task-center";
 import { capabilitySupportedModes, createWorkbenchTask, listWorkbenchTasks, listWorkbenchTools, resolveWorkbenchResourceURL, type WorkbenchKind, type WorkbenchPromptPreset, type WorkbenchReferenceSlot, type WorkbenchTool } from "@/services/api/workbench";
 import { useCreationPreferencesStore } from "@/stores/use-creation-preferences-store";
-import { logicalModelIDForConfig, modelDisplayName, modelOptionName, resolveModelChannel, selectableModelsByCapability, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
+import { resolveModelRequestConfig, logicalModelIDForConfig, modelDisplayName, modelOptionName, resolveModelChannel, selectableModelsByCapability, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 
 import {
@@ -922,17 +924,28 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
         const channel = resolveModelChannel(config, selectedModel);
         const imageRequest = kind === "image" && imageProfile ? normalizeImageValue(imageProfile, { size: ratio, quality, imageResolution, imageParameters: config.imageParameters, count: "1", transparentBackground: config.transparentBackground }) : null;
         const videoRequest = kind === "video" && videoProfile ? normalizeVideoValue(videoProfile, { seconds, ratio, resolution: videoQuality }) : null;
+        const videoConfig = kind === "video" ? projectLumiConfig(composerConfig) : composerConfig;
+        const lumiParameters = videoConfig !== composerConfig ? videoConfig.lumiVideoParameters : undefined;
         const parameters: Record<string, unknown> = imageRequest
             ? { size: imageRequest.size, quality: imageRequest.quality, ...(imageRequest.imageResolution ? { imageResolution: imageRequest.imageResolution } : {}) }
-            : {
-                  seconds: Number(videoRequest?.seconds || seconds),
-                  ratio: videoRequest?.ratio || ratio,
-                  resolution: videoRequest?.resolution || videoQuality,
-                  generateAudio: composerConfig.videoGenerateAudio === "true",
-                  watermark: composerConfig.videoWatermark === "true",
-              };
+            : lumiParameters
+              ? {
+                    seconds: Number(videoConfig.videoSeconds),
+                    ratio: videoConfig.size,
+                    resolution: videoConfig.vquality,
+                    generateAudio: videoConfig.videoGenerateAudio === "true",
+                    watermark: videoConfig.videoWatermark === "true",
+                    lumiVideoParameters: lumiParameters,
+                }
+              : {
+                    seconds: Number(videoRequest?.seconds || seconds),
+                    ratio: videoRequest?.ratio || ratio,
+                    resolution: videoRequest?.resolution || videoQuality,
+                    generateAudio: composerConfig.videoGenerateAudio === "true",
+                    watermark: composerConfig.videoWatermark === "true",
+                };
         const generationConfig = {
-            ...composerConfig,
+            ...videoConfig,
             model: selectedModel,
             ...(imageRequest ? { imageModel: selectedModel, size: imageRequest.size, quality: imageRequest.quality, imageResolution: imageRequest.imageResolution } : {}),
             ...(videoRequest ? { videoModel: selectedModel, size: videoRequest.ratio, videoSeconds: videoRequest.seconds, vquality: videoRequest.resolution.replace(/p$/i, "") } : {}),
@@ -1155,6 +1168,7 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
             rememberVideoSettings({ seconds: restoredSeconds, ratio: restoredRatio, videoQuality: restoredQuality });
             if (typeof parameters.generateAudio === "boolean") updateConfig("videoGenerateAudio", String(parameters.generateAudio));
             if (typeof parameters.watermark === "boolean") updateConfig("videoWatermark", String(parameters.watermark));
+            if (typeof parameters.lumiVideoParameters === "string") updateConfig("lumiVideoParameters", parameters.lumiVideoParameters);
         }
         const total = Math.max(1, batch.counts.total || batch.tasks.length);
         changeCount(Math.min(batchLimit, total));
@@ -1372,6 +1386,8 @@ export function WorkbenchPage({ kind }: { kind: WorkbenchKind }) {
                     />
                 ) : null}
             </>
+        ) : kind === "video" && resolveModelRequestConfig(composerConfig, selectedModel).interfaceType === "lumi-ark-video" ? (
+            <LumiVideoSettings value={JSON.stringify(lumiOptionsForConfig(composerConfig))} onChange={(value) => updateConfig("lumiVideoParameters", value)} />
         ) : videoProfile ? (
             <>
                 {videoProfile.durationSupported !== false && durationOptions.length ? (

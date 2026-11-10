@@ -1,4 +1,5 @@
 import { modelRequestOptions, resolveVideoOperation, type ModelRequirements } from "@/lib/model-selection";
+import { projectLumiConfig } from "@/lib/lumi-video";
 import { videoResolutionComparisonKey } from "@/lib/video-generation-options";
 import { imagePriceSelector, normalizeImagePriceSelector } from "@/lib/image-pricing";
 import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
@@ -17,6 +18,12 @@ type ModelCreditCost = {
 
 export function requestCreditCost(options: { channelMode: string; modelCosts?: ModelCreditCost[]; model: string; count?: string | number; seconds?: string | number; capability?: ModelCapability; config?: AiConfig; requirements?: ModelRequirements }) {
     if (options.channelMode !== "remote") return null;
+    if (options.capability === "video" && options.config) {
+        const projected = projectLumiConfig(options.config);
+        if (projected !== options.config) {
+            options = { ...options, config: projected, seconds: projected.videoSeconds, requirements: lumiQuoteRequirements(projected, options.requirements) };
+        }
+    }
     const cost = options.modelCosts?.find((item) => item.model === options.model) || null;
     if (!cost) return null;
     if (cost.pricePolicy === "channel") {
@@ -136,6 +143,14 @@ export function systemModelQuoteRequest(config: AiConfig, value: string, capabil
     if (channel.scope !== "system") return undefined;
     const cost = channel.modelCosts?.find((item) => item.model === modelOptionName(value));
     if (!cost) return undefined;
+    if (capability === "video") {
+        const selected = { ...config, model: value };
+        const projected = projectLumiConfig(selected);
+        if (projected !== selected) {
+            config = projected;
+            requirements = lumiQuoteRequirements(projected, requirements);
+        }
+    }
     const input = requirements?.input;
     const intent: ModelRequestIntent = {
         capability,
@@ -155,6 +170,21 @@ export function systemModelQuoteRequest(config: AiConfig, value: string, capabil
     const durations = referenceVideoQuoteDurations(input);
     if (capability === "video" && durations) intent.referenceVideoDurationsMs = durations;
     return cost.logicalModelId ? { logicalModelID: cost.logicalModelId, intent } : { channelId: channel.id, modelKey: modelOptionName(value), intent };
+}
+
+function lumiQuoteRequirements(config: AiConfig, requirements?: ModelRequirements): ModelRequirements {
+    return {
+        ...requirements,
+        videoSeconds: config.videoSeconds,
+        options: {
+            ...requirements?.options,
+            size: config.size,
+            vquality: config.vquality,
+            videoSeconds: Number(config.videoSeconds),
+            videoGenerateAudio: config.videoGenerateAudio === "true",
+            videoWatermark: config.videoWatermark === "true",
+        },
+    };
 }
 
 // 只有全部参考视频时长都已知时才提交给报价接口；任一未知时交给后端按上限预估并标明。

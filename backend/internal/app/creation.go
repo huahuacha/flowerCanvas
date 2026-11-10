@@ -333,7 +333,7 @@ func (s *Service) prepareCreationTask(userID string, req CreateTaskRequest) (*mo
 	}
 	// System selectors are the only authority; discard frontend sentinel credentials.
 	safeConfig := map[string]any{}
-	for _, key := range []string{"channelId", "channelModelKey", "model", "priceTierId", "apiFormat", "interfaceType", "size", "quality", "transparentBackground", "count", "videoSeconds", "vquality", "videoGenerateAudio", "videoWatermark", "videoArkPrivateAssetUpload", "systemPrompt"} {
+	for _, key := range []string{"channelId", "channelModelKey", "model", "priceTierId", "apiFormat", "interfaceType", "size", "quality", "transparentBackground", "count", "videoSeconds", "vquality", "videoGenerateAudio", "videoWatermark", "videoArkPrivateAssetUpload", "lumiVideoParameters", "systemPrompt"} {
 		if value, ok := config[key]; ok {
 			safeConfig[key] = value
 		}

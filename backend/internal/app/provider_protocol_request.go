@@ -133,6 +133,42 @@ func protocolRequestFromInput(input canvasGenerationInput) protocol.GenerationRe
 			delete(request.ProviderOptions, input.Config.InterfaceType)
 		}
 	}
+
+	if input.Config.InterfaceType == "lumi-ark-video" {
+		options := map[string]any{}
+		if raw := strings.TrimSpace(input.Config.LumiVideoParameters); raw != "" {
+			if err := json.Unmarshal([]byte(raw), &options); err != nil || options == nil {
+				request.Extra["lumiConfigError"] = "invalid options"
+			}
+		}
+		if strings.TrimSpace(input.Config.LumiVideoParameters) == "" {
+			// Older task and Agent entry points carry explicit generic values rather than a Lumi panel snapshot.
+			// Metadata is not an admitted Lumi configuration and must never override priced specifications.
+			if v := strings.TrimSpace(input.Config.Size); v != "" {
+				options["ratio"] = v
+			}
+			if v := strings.TrimSpace(input.Config.VQuality); v != "" {
+				options["resolution"] = normalizeLumiResolution(v)
+			}
+			if v, err := strconv.Atoi(input.Config.VideoSeconds); err == nil {
+				options["duration"] = v
+			}
+			if v, err := strconv.ParseBool(input.Config.VideoGenerateAudio); err == nil {
+				options["generate_audio"] = v
+			}
+			if v, err := strconv.ParseBool(input.Config.VideoWatermark); err == nil {
+				options["watermark"] = v
+			}
+		}
+		request.ProviderOptions["lumi-ark-video"] = options
+		// The Lumi panel owns optional values. Generic video defaults must not turn omission into a value.
+		request.Duration = 0
+		request.AspectRatio = ""
+		request.Resolution = ""
+		request.GenerateAudio = false
+		request.Watermark = false
+		request.Output = protocol.OutputOptions{}
+	}
 	return request
 }
 

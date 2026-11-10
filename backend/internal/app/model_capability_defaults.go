@@ -168,6 +168,12 @@ func DefaultModelCapabilityConfigForModel(protocol string, modelName string) *Mo
 		Operations:        []string{"text_to_video", "image_to_video"},
 		DefaultOperation:  "text_to_video",
 	}
+	if protocol == "lumi-ark-video" {
+		video.Ratios = append(video.Ratios, "adaptive")
+		if strings.Contains(modelName, "2.5") || strings.Contains(modelName, "2-5") {
+			video.Duration.Max = 30
+		}
+	}
 	switch model.ChannelInterfaceType(protocol) {
 	case model.ChannelInterfaceVolcengineJiMengVideo:
 		video.Duration = VideoDurationConfig{Selection: "enum", Values: []int{5, 10}, Default: 5}
@@ -175,7 +181,7 @@ func DefaultModelCapabilityConfigForModel(protocol string, modelName string) *Mo
 	case model.ChannelInterfaceGeminiVeo:
 		video.Duration = VideoDurationConfig{Selection: "enum", Values: []int{4, 6, 8}, Default: 6}
 		video.Resolutions = []string{"720p", "1080p"}
-	case model.ChannelInterfaceVolcengineArkVideo, model.ChannelInterfaceVolcengineArkAgentPlanVideo:
+	case model.ChannelInterfaceVolcengineArkVideo, model.ChannelInterfaceVolcengineArkAgentPlanVideo, model.ChannelInterfaceType("lumi-ark-video"):
 		video.Operations = append(video.Operations, "reference_to_video", "audio_to_video")
 		video.References.MaxVideos, video.References.MaxAudios = 3, 3
 		video.References.MaxVideoBytes, video.References.MaxAudioBytes = 200*1024*1024, 15*1024*1024

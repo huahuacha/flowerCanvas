@@ -135,6 +135,9 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 		}
 	}
 
+	if c, ok := normalizedInput["config"].(map[string]any); ok && stringValue(c["lumiVideoParameters"]) != "" && stringValue(c["interfaceType"]) != "lumi-ark-video" {
+		return nil, BadAuthRequest("Lumi 参数仅适用于 Lumi 视频协议，请重新选择模型")
+	}
 	if strings.HasPrefix(taskType, "video_") && !hasExecutableProviderVideoConfig(normalizedInput) {
 		if mode, _ := normalizedInput["mode"].(string); mode != "video" {
 			return nil, errors.New("视频任务必须使用 video 模式")
@@ -458,6 +461,9 @@ func normalizeTaskInput(input map[string]any) (map[string]any, error) {
 			}
 			config["imageParameters"] = parameters
 		}
+	}
+	if err := normalizeLumiTaskInput(normalized); err != nil {
+		return nil, err
 	}
 	if snapshot, ok := normalized["canvasSnapshot"]; ok {
 		normalized["canvasSnapshot"] = compactPersistedValue(snapshot)

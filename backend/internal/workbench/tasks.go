@@ -269,7 +269,7 @@ func videoOperation(refs []TaskReference) string {
 func normalizeTaskParameters(kind string, params map[string]any) (map[string]any, error) {
 	allowed := map[string]map[string]bool{
 		KindImage: {"size": true, "quality": true, "imageResolution": true, "count": true},
-		KindVideo: {"seconds": true, "ratio": true, "resolution": true, "generateAudio": true, "watermark": true},
+		KindVideo: {"seconds": true, "ratio": true, "resolution": true, "generateAudio": true, "watermark": true, "lumiVideoParameters": true},
 	}[kind]
 	if allowed == nil {
 		return nil, kernel.BadAuthRequest("工作台类型无效")
@@ -280,6 +280,13 @@ func normalizeTaskParameters(kind string, params map[string]any) (map[string]any
 			return nil, kernel.BadAuthRequest("生成参数包含不支持字段: " + key)
 		}
 		switch key {
+		case "lumiVideoParameters":
+			text, ok := value.(string)
+			var options map[string]any
+			if !ok || len(text) > 16*1024 || json.Unmarshal([]byte(text), &options) != nil || options == nil {
+				return nil, kernel.BadAuthRequest("生成参数格式无效: " + key)
+			}
+			normalized[key] = text
 		case "size", "quality", "imageResolution", "ratio", "resolution":
 			text, ok := value.(string)
 			text = strings.TrimSpace(text)

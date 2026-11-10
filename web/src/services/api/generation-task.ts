@@ -1,5 +1,6 @@
 import type { ThinkingRequest } from "@/lib/text-thinking";
 import { createClientUUID } from "@/lib/client-id";
+import { projectLumiConfig } from "@/lib/lumi-video";
 import { normalizeAudioFormatForConfig, normalizeAudioVoiceForConfig } from "@/lib/audio-generation";
 import { imageParameterRequest } from "@/lib/image-parameters";
 import { getMediaBlob } from "@/services/file-storage";
@@ -292,7 +293,8 @@ export async function prepareBackendGenerationTask(options: BackendGenerationTas
 }
 
 function backendGenerationTaskInput(options: BackendGenerationTaskOptions, prepared: PreparedGenerationReferences): CreateTaskInput {
-    const { projectId, mode, prompt, config, metadata } = options;
+    const { projectId, mode, prompt, metadata } = options;
+    const config = mode === "video" ? projectLumiConfig(options.config) : options.config;
     const videoOperation = generationOperation(options);
     const workflow = resolveGenerationWorkflowExecution(config, mode);
     const logicalModelId = workflow ? "" : logicalModelIDForConfig(config);
@@ -409,6 +411,7 @@ function backendMediaReference<T extends ReferenceVideo | ReferenceAudio>(media:
 }
 
 export function backendProviderConfig(config: AiConfig, mode: BackendGenerationMode = "image") {
+    if (mode === "video") config = projectLumiConfig(config);
     const requestConfig = resolveModelRequestConfig(config, config.model);
     const workflow = resolveGenerationWorkflowExecution(config, mode);
     if (workflow) return workflowProviderConfig(config, requestConfig, workflow);
@@ -424,6 +427,7 @@ export function backendProviderConfig(config: AiConfig, mode: BackendGenerationM
         videoGenerateAudio: config.videoGenerateAudio,
         videoWatermark: config.videoWatermark,
         videoArkPrivateAssetUpload: config.videoArkPrivateAssetUpload,
+        lumiVideoParameters: mode === "video" && requestConfig.interfaceType === "lumi-ark-video" ? config.lumiVideoParameters : undefined,
         audioVoice: normalizeAudioVoiceForConfig(config, config.audioVoice),
         audioFormat: normalizeAudioFormatForConfig(config, config.audioFormat),
         audioSpeed: config.audioSpeed,

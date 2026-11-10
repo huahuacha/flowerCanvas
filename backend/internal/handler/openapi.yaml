@@ -3478,6 +3478,9 @@ paths:
                     resolution: { type: string }
                     generateAudio: { type: boolean }
                     watermark: { type: boolean }
+                    lumiVideoParameters:
+                      type: string
+                      description: 仅限 Lumi 视频模型。JSON 对象字符串，UTF-8 最大 16 KiB。
                 references:
                   type: array
                   maxItems: 20

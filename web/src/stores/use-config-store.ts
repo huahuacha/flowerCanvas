@@ -162,6 +162,7 @@ export type AiConfig = {
     videoGenerateAudio: string;
     videoWatermark: string;
     videoArkPrivateAssetUpload: string;
+    lumiVideoParameters?: string;
     systemPrompt: string;
     models: string[];
     imageModels: string[];
