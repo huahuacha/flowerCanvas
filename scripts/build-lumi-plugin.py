@@ -60,7 +60,7 @@ readme='# Lumi 视频（火山兼容）\n\n连接你的 New API 根地址，使�
 docs='# 接口与参数\n\n创建 POST /api/v3/contents/generations/tasks；查询 GET 同路径/{平台任务ID}。每笔新创作使用宿主生成的稳定 Idempotency-Key，重试沿用，已有任务不重新提交。\n\n应用边界：当前要求非空提示词和明确时长、画幅、分辨率；不开放自动时长、升清、编辑和续写。尾帧链接可由平台查询，当前影策视频结果尚未持久化为独立尾帧资产。409 submission_pending 不自动重建任务，留待人工恢复或后续状态恢复流程。\n\n参数来源为 providerOptions.lumi-ark-video；画布视频设置中的 Lumi 面板写入 lumiVideoParameters，宿主转换后按本清单映射。参数显式覆盖普通面板；未设置的参数不补默认值。\n\n'+ '\n'.join('- `'+x['name']+'`：'+x['description'] for x in params)+'\n\n响应：保留平台任务 ID，优先 relay_video_url/relay_last_frame_url，缺失回退 content 原始链接；临时资源仍由宿主持久化。生成结束与费用结算分开，usage/consumed_tokens 不用于再次计费。账务信息来自平台，不在此换算 Lumi 算点。成功但无视频、reconciliation_pending 保持查询原任务。未知状态按失败处理。\n\n参考素材必须是 HTTPS 或平台允许的资产引用；不要填本地路径、HTTP、Base64。asset ID 是 New API 平台资产，不是影策本地素材 ID。\n\n样片升清仅传 draft_task_id 与 1080p，普通时长/声音等字段省略。平台负责样片归属和上游账号绑定。修改模型后请检查可用能力。真实上游生成与升清对账尚未验证。\n'
 placeholder='<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>'
 contract=copy.deepcopy(manifest);contract['documentation']=placeholder
-docs+='\n<!-- YINGCE_MANIFEST_CONTRACT_START -->\n## Manifest 完整定义\n\n```json\n'+json.dumps(contract,ensure_ascii=False,indent=2)+'\n```\n<!-- YINGCE_MANIFEST_CONTRACT_END -->\n'
+docs+='\n<!-- YINGCE_MANIFEST_CONTRACT_START -->\n## Manifest 完整接口定义\n\n```json\n'+json.dumps(contract,ensure_ascii=False,indent=2)+'\n```\n<!-- YINGCE_MANIFEST_CONTRACT_END -->\n'
 manifest['documentation']=readme.strip()+'\n\n---\n\n'+docs.strip()
 (p/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
 (p/'README.md').write_bytes(readme.encode('utf-8'));(p/'docs/interface.md').write_bytes(docs.encode('utf-8'))

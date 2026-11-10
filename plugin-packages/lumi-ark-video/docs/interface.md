@@ -39,7 +39,7 @@
 样片升清仅传 draft_task_id 与 1080p，普通时长/声音等字段省略。平台负责样片归属和上游账号绑定。修改模型后请检查可用能力。真实上游生成与升清对账尚未验证。
 
 <!-- YINGCE_MANIFEST_CONTRACT_START -->
-## Manifest 完整定义
+## Manifest 完整接口定义
 
 ```json
 {
