@@ -1,6 +1,6 @@
 import type { AppLocale } from "../../locales";
 
-export const catalog: Partial<Record<AppLocale, object>> = {
+const translations = {
     "zh-CN": {
         group: "公司",
         "company-members": { label: "公司成员", description: "开通员工账号、停用员工并分配积分" },
@@ -133,4 +133,13 @@ export const catalog: Partial<Record<AppLocale, object>> = {
             required: "Add an API key for this channel in Settings → Channels & storage → Fixed channels before generating.",
         },
     },
+};
+
+// Use English for locales whose company translations have not been added yet.
+export const catalog: Record<AppLocale, object> = {
+    ...translations,
+    "de-DE": translations["en-US"],
+    "fr-FR": translations["en-US"],
+    "ja-JP": translations["en-US"],
+    "ko-KR": translations["en-US"],
 };

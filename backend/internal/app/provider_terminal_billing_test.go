@@ -94,7 +94,8 @@ func TestProviderTerminalStatusReleasesBillingReservation(t *testing.T) {
 			task := &model.Task{ID: newID(), UserID: "billing-user", Type: tt.taskType, Status: model.TaskStatusRunning, InputJSON: string(encoded), LeaseOwner: "worker-a", LeaseExpiresAt: &expires, RouteRun: 1}
 			order := model.BillingOrder{ID: newID(), UserID: task.UserID, TaskID: task.ID, IdempotencyKey: newID(), Status: model.BillingStatusRunning, AmountMicrocredits: 100, ReservedAmountMicrocredits: 100}
 			task.BillingOrderID = order.ID
-			for _, value := range []any{task, &order, &model.CreditAccount{UserID: task.UserID, AvailableMicrocredits: 900, ReservedMicrocredits: 100}} {
+			user := &model.User{ID: task.UserID, Username: task.UserID, Role: model.UserRoleUser, Status: model.UserStatusActive}
+			for _, value := range []any{user, task, &order, &model.CreditAccount{UserID: task.UserID, AvailableMicrocredits: 900, ReservedMicrocredits: 100}} {
 				if err := db.Create(value).Error; err != nil {
 					t.Fatal(err)
 				}
