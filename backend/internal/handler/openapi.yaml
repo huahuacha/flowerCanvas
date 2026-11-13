@@ -36,6 +36,135 @@ tags:
   - name: pose-library
     description: 站点姿势库：浏览、选用，管理员导入与图片同步
 paths:
+  /admin/companies:
+    get:
+      tags: [admin]
+      summary: 列出公司及管理员
+      responses:
+        "200": {description: 公司列表}
+        "403": {$ref: "#/components/responses/Error"}
+    post:
+      tags: [admin]
+      summary: 开通公司并绑定首位管理员
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: {type: string}
+                adminUsername: {type: string, description: 已有普通用户的用户名}
+                adminUserId: {type: string, description: 已有普通用户的 ID}
+      responses:
+        "200": {description: 公司已开通}
+        "400": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+  /company/membership:
+    get:
+      tags: [auth]
+      summary: 查看当前用户的公司身份
+      responses:
+        "200": {description: 公司身份或空值}
+        "401": {$ref: "#/components/responses/Error"}
+  /company/members:
+    get:
+      tags: [auth]
+      summary: 公司管理员查看本公司成员
+      responses:
+        "200": {description: 公司成员和余额}
+        "403": {$ref: "#/components/responses/Error"}
+    post:
+      tags: [auth]
+      summary: 为本公司开通零积分员工账号
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: {type: string}
+                password: {type: string, format: password, writeOnly: true}
+                displayName: {type: string}
+                email: {type: string, format: email}
+      responses:
+        "200": {description: 员工已开通}
+        "400": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+  /company/members/{id}/disable:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string}
+    post:
+      tags: [auth]
+      summary: 停用本公司员工并撤销登录会话
+      responses:
+        "200": {description: 员工已停用}
+        "403": {$ref: "#/components/responses/Error"}
+  /company/members/{id}/credits:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string}
+    post:
+      tags: [auth]
+      summary: 从公司管理员可用余额向本公司员工分配积分
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amountMicrocredits, requestId]
+              properties:
+                amountMicrocredits: {type: integer, format: int64, minimum: 1, maximum: 9007199254740991}
+                requestId: {type: string, description: 同一笔分配重试时沿用}
+      responses:
+        "200": {description: 分配成功或返回同一笔分配结果}
+        "400": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+  /fixed-channels:
+    get:
+      tags: [models]
+      summary: 查看当前成员可用的固定渠道及 Key 配置状态
+      responses:
+        "200": {description: 固定渠道列表，包含配置状态}
+        "401": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+  /fixed-channels/{id}/credential:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string}
+    put:
+      tags: [models]
+      summary: 保存当前用户的固定渠道 Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apiKey]
+              properties:
+                apiKey: {type: string, writeOnly: true}
+      responses:
+        "200": {description: 已保存，返回渠道配置状态}
+        "400": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+    delete:
+      tags: [models]
+      summary: 移除当前用户的固定渠道 Key
+      responses:
+        "200": {description: 已移除}
+        "403": {$ref: "#/components/responses/Error"}
   /admin/ecommerce/skills/install:
     post:
       tags: [admin]

@@ -208,13 +208,14 @@ func (s *Service) switchTaskToNextRoute(task *model.Task, attempts []model.Route
 	if err != nil {
 		return nil, err
 	}
-	enabledSystemChannels := make(map[string]bool, len(systemChannels))
+	enabledSystemChannels := make(map[string]model.ModelChannel, len(systemChannels))
 	for _, channel := range systemChannels {
-		enabledSystemChannels[channel.ID] = true
+		enabledSystemChannels[channel.ID] = channel
 	}
 	channelModelByID := make(map[string]model.ChannelModel, len(channelModels))
 	for _, channelModel := range channelModels {
-		if channelModel.Enabled && enabledSystemChannels[channelModel.ChannelID] && (logicalModel.PricePolicy != "channel" || channelModelHasActivePriceTier(channelModel)) {
+		_, channelEnabled := enabledSystemChannels[channelModel.ChannelID]
+		if channelModel.Enabled && channelEnabled && (logicalModel.PricePolicy != "channel" || channelModelHasActivePriceTier(channelModel)) {
 			channelModelByID[channelModel.ID] = channelModel
 		}
 	}
@@ -228,7 +229,7 @@ func (s *Service) switchTaskToNextRoute(task *model.Task, attempts []model.Route
 		if specErr != nil {
 			continue
 		}
-		candidates = append(candidates, cachedLogicalRoute{Route: route, CapabilitySpec: capabilitySpec, ChannelModel: channelModel})
+		candidates = append(candidates, cachedLogicalRoute{Route: route, CapabilitySpec: capabilitySpec, ChannelModel: channelModel, CredentialSource: enabledSystemChannels[channelModel.ChannelID].CredentialSource})
 	}
 	productSpec = capabilitySpecWithRoutePresets(productSpec, enabledLogicalRouteSpecs(candidates))
 	defaults, err := decodeLogicalDefaults(revision.DefaultOptionsJSON, productSpec)
@@ -261,6 +262,9 @@ func (s *Service) switchTaskToNextRoute(task *model.Task, attempts []model.Route
 	}
 	routed := &RoutedModel{LogicalModel: *logicalModel, Revision: *revision, Route: selected.Route, ChannelModel: selected.ChannelModel, CapabilitySpec: selected.CapabilitySpec, PriceTier: priceTier, Defaults: defaults, Intent: intent}
 	nextInput := applyRoutedProviderSelection(input, routed)
+	if err := s.requireFixedTaskCredential(task.UserID, nextInput); err != nil {
+		return nil, err
+	}
 	if err := s.ValidateTaskCapability(nextInput); err != nil {
 		return nil, err
 	}
@@ -491,6 +495,10 @@ func (s *Service) finishTaskRouteAttempt(attempt *model.RouteAttempt, task *mode
 }
 
 func routeFailureCode(err error) string {
+	var unsent providerNotSubmittedError
+	if errors.As(err, &unsent) {
+		return "not_submitted"
+	}
 	if code, _ := ChannelSlotFailureDetails(err); code != "" {
 		return code
 	}
@@ -504,6 +512,10 @@ func routeFailureCode(err error) string {
 func safeRouteRejection(err error) bool {
 	if err == nil {
 		return false
+	}
+	var unsent providerNotSubmittedError
+	if errors.As(err, &unsent) {
+		return true
 	}
 	if code, _ := ChannelSlotFailureDetails(err); code != "" {
 		return true

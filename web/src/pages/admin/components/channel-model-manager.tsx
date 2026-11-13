@@ -24,6 +24,7 @@ import { Select } from "@/components/ui/base/select";
 
 export function ChannelModelManager({ channel, onChanged, health, healthLoading }: { channel: ModelChannel; onChanged: () => void | Promise<void>; health?: Map<string, AdminChannelModelHealth>; healthLoading?: boolean }) {
     const { message, modal } = App.useApp();
+    const usesMemberKey = channel.credentialSource === "user";
     const [togglingId, setTogglingId] = useState<string | null>(null);
     const [items, setItems] = useState<ChannelModel[]>([]);
     const [selectedModelIds, setSelectedModelIds] = useState<string[]>([]);
@@ -326,7 +327,7 @@ export function ChannelModelManager({ channel, onChanged, health, healthLoading 
                     <h3 className="admin-channel-model-heading">
                         模型管理 <span className="admin-channel-count">{items.length}</span>
                     </h3>
-                    <p className="admin-channel-model-hint">稳定性只统计模型生成请求；勾选模型可统一调价、修改协议或批量删除</p>
+                    <p className="admin-channel-model-hint">{usesMemberKey ? "拉取和测试需要专用测试凭据，请手动添加模型。" : "稳定性只统计模型生成请求；勾选模型可统一调价、修改协议或批量删除"}</p>
                 </div>
                 <Space wrap>
                     <ChannelOrderDialog
@@ -336,7 +337,7 @@ export function ChannelModelManager({ channel, onChanged, health, healthLoading 
                             await onChanged();
                         }}
                     />
-                    <Button loading={fetching} icon={<RefreshCw className="size-4" />} onClick={() => void fetchModels()}>
+                    <Button disabled={usesMemberKey} loading={fetching} icon={<RefreshCw className="size-4" />} onClick={() => void fetchModels()}>
                         拉取模型
                     </Button>
                     <Button type="primary" icon={<Plus className="size-4" />} onClick={startCreate}>
@@ -356,7 +357,7 @@ export function ChannelModelManager({ channel, onChanged, health, healthLoading 
                 empty={
                     <AdminTableEmpty
                         title={loadError ? "模型列表加载失败" : items.length ? "没有匹配的模型" : "这个渠道还没有模型"}
-                        description={loadError ? "请重试加载，暂时无法确认模型列表。" : items.length ? "调整搜索或筛选条件后重试。" : "点击上方“拉取模型”从上游导入，或手动新增模型。"}
+                        description={loadError ? "请重试加载，暂时无法确认模型列表。" : items.length ? "调整搜索或筛选条件后重试。" : usesMemberKey ? "点击上方“新增模型”手动配置。" : "点击上方“拉取模型”从上游导入，或手动新增模型。"}
                     />
                 }
                 toolbar={

@@ -42,12 +42,13 @@ type BulkDisableUsersResult struct {
 }
 
 type AdminListQuery struct {
-	Keyword string
-	Status  string
-	Type    string
-	Group   string
-	Page    int
-	Limit   int
+	CredentialSource model.ChannelCredentialSource
+	Keyword          string
+	Status           string
+	Type             string
+	Group            string
+	Page             int
+	Limit            int
 }
 
 type AdminUserPage struct {
@@ -93,17 +94,18 @@ type AdminReferenceData struct {
 }
 
 type ChannelRequest struct {
-	MediaTransport       *ReferenceMediaTransport `json:"mediaTransport"`
-	Name                 string                   `json:"name"`
-	SortOrder            *int                     `json:"sortOrder"`
-	BaseURL              string                   `json:"baseUrl"`
-	APIKey               string                   `json:"apiKey"`
-	SecretKey            string                   `json:"secretKey"`
-	ConcurrencyLimit     *int                     `json:"concurrencyLimit"`
-	UseGlobalConcurrency *bool                    `json:"useGlobalConcurrency"`
-	Models               []string                 `json:"models"`
-	Headers              []OutboundHeader         `json:"headers"`
-	Enabled              *bool                    `json:"enabled"`
+	CredentialSource     model.ChannelCredentialSource `json:"credentialSource"`
+	MediaTransport       *ReferenceMediaTransport      `json:"mediaTransport"`
+	Name                 string                        `json:"name"`
+	SortOrder            *int                          `json:"sortOrder"`
+	BaseURL              string                        `json:"baseUrl"`
+	APIKey               string                        `json:"apiKey"`
+	SecretKey            string                        `json:"secretKey"`
+	ConcurrencyLimit     *int                          `json:"concurrencyLimit"`
+	UseGlobalConcurrency *bool                         `json:"useGlobalConcurrency"`
+	Models               []string                      `json:"models"`
+	Headers              []OutboundHeader              `json:"headers"`
+	Enabled              *bool                         `json:"enabled"`
 	// ProxyURL 指针语义：nil = 请求未提交该字段（更新时保持渠道现有值），
 	// 指向空串 = 显式清空渠道代理。此前用 string 类型导致「删掉代理保存」
 	// 被 mergeChannelRequest 回填旧值，永远清不掉。
@@ -111,26 +113,27 @@ type ChannelRequest struct {
 }
 
 type PublicModelChannel struct {
-	MediaTransport   *ReferenceMediaTransport  `json:"mediaTransport,omitempty"`
-	ID               string                    `json:"id"`
-	UserID           string                    `json:"userId"`
-	Scope            model.ChannelScope        `json:"scope"`
-	Enabled          bool                      `json:"enabled"`
-	Name             string                    `json:"name"`
-	SortOrder        int                       `json:"sortOrder"`
-	BaseURL          string                    `json:"baseUrl"`
-	APIKey           string                    `json:"apiKey"`
-	APIFormat        string                    `json:"apiFormat"`
-	ConcurrencyLimit int                       `json:"concurrencyLimit"`
-	ProxyURL         string                    `json:"proxyUrl"`
-	Models           []string                  `json:"models"`
-	ModelCosts       []PublicChannelModelPrice `json:"modelCosts"`
-	Headers          []OutboundHeader          `json:"headers,omitempty"`
-	HasAPIKey        bool                      `json:"hasApiKey"`
-	HasSecretKey     bool                      `json:"hasSecretKey"`
-	CatalogProvider  string                    `json:"catalogProviderId,omitempty"`
-	CreatedAt        time.Time                 `json:"createdAt"`
-	UpdatedAt        time.Time                 `json:"updatedAt"`
+	CredentialSource model.ChannelCredentialSource `json:"credentialSource"`
+	MediaTransport   *ReferenceMediaTransport      `json:"mediaTransport,omitempty"`
+	ID               string                        `json:"id"`
+	UserID           string                        `json:"userId"`
+	Scope            model.ChannelScope            `json:"scope"`
+	Enabled          bool                          `json:"enabled"`
+	Name             string                        `json:"name"`
+	SortOrder        int                           `json:"sortOrder"`
+	BaseURL          string                        `json:"baseUrl"`
+	APIKey           string                        `json:"apiKey"`
+	APIFormat        string                        `json:"apiFormat"`
+	ConcurrencyLimit int                           `json:"concurrencyLimit"`
+	ProxyURL         string                        `json:"proxyUrl"`
+	Models           []string                      `json:"models"`
+	ModelCosts       []PublicChannelModelPrice     `json:"modelCosts"`
+	Headers          []OutboundHeader              `json:"headers,omitempty"`
+	HasAPIKey        bool                          `json:"hasApiKey"`
+	HasSecretKey     bool                          `json:"hasSecretKey"`
+	CatalogProvider  string                        `json:"catalogProviderId,omitempty"`
+	CreatedAt        time.Time                     `json:"createdAt"`
+	UpdatedAt        time.Time                     `json:"updatedAt"`
 }
 
 type PublicChannelModelPrice struct {
@@ -156,6 +159,24 @@ func channelFromRequest(req ChannelRequest, channel model.ModelChannel) (model.M
 }
 
 func (s *Service) channelFromRequest(req ChannelRequest, channel model.ModelChannel) (model.ModelChannel, error) {
+	source := channelCredentialSource(channel)
+	if req.CredentialSource != "" {
+		if req.CredentialSource != model.ChannelCredentialSourcePlatform && req.CredentialSource != model.ChannelCredentialSourceUser {
+			return channel, BadAuthRequest("渠道凭据来源无效")
+		}
+		source = req.CredentialSource
+	}
+	if source == model.ChannelCredentialSourceUser && (req.APIKey != "" || req.SecretKey != "") {
+		return channel, BadAuthRequest("固定渠道由成员配置个人 API Key")
+	}
+	if source == model.ChannelCredentialSourceUser {
+		for _, header := range req.Headers {
+			if strings.EqualFold(strings.TrimSpace(header.Name), "x-api-key") {
+				return channel, BadAuthRequest("固定渠道的自定义请求头不能包含 API Key")
+			}
+		}
+	}
+	channel.CredentialSource = source
 	if _, err := normalizeReferenceMediaTransport(req.MediaTransport); err != nil {
 		return channel, err
 	}
@@ -282,6 +303,7 @@ func publicChannel(channel model.ModelChannel, admin bool, channelModels []model
 		proxyURL = channel.ProxyURL
 	}
 	return PublicModelChannel{
+		CredentialSource: channelCredentialSource(channel),
 		ID:               channel.ID,
 		UserID:           channel.UserID,
 		Scope:            channel.Scope,
@@ -302,6 +324,13 @@ func publicChannel(channel model.ModelChannel, admin bool, channelModels []model
 		CreatedAt:        channel.CreatedAt,
 		UpdatedAt:        channel.UpdatedAt,
 	}
+}
+
+func channelCredentialSource(channel model.ModelChannel) model.ChannelCredentialSource {
+	if channel.CredentialSource == "" {
+		return model.ChannelCredentialSourcePlatform
+	}
+	return channel.CredentialSource
 }
 
 func uniqueNonEmpty(values []string) []string {

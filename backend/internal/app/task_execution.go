@@ -20,6 +20,14 @@ func (s *Service) processTask(ctx context.Context, task model.Task) (map[string]
 		return nil, nil, err
 	}
 	task.InputJSON = decryptedInput
+	if strings.HasPrefix(task.Type, "video_") && !canRunProviderTask(task) {
+		return nil, nil, errors.New("视频任务缺少可执行的模型配置")
+	}
+	if task.ProviderRequestID == "" {
+		if _, err := s.requireActiveTaskOwner(task.UserID); err != nil {
+			return nil, nil, providerNotSubmittedError{err}
+		}
+	}
 	ctx = withTaskExecutionID(ctx, task.ID)
 	ctx = withProviderAnalytics(ctx, s, task)
 	ctx = context.WithValue(ctx, mediaExecutionTaskKey{}, task)
@@ -29,9 +37,6 @@ func (s *Service) processTask(ctx context.Context, task model.Task) (map[string]
 		return result, nil, err
 	}
 	if strings.HasPrefix(task.Type, "video_") {
-		if !canRunProviderTask(task) {
-			return nil, nil, errors.New("视频任务缺少可执行的模型配置")
-		}
 		result, err := s.processCanvasGenerationTask(ctx, task.UserID, task.ProjectID, task.Type, task.Prompt, task.InputJSON)
 		return result, nil, err
 	}

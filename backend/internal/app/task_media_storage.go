@@ -155,6 +155,7 @@ func (s *Service) stageInlineMedia(data []byte) (string, error) {
 }
 
 func (s *Service) downloadTaskMedia(ctx context.Context, config providerConfig, url, mode string) (name, mimeType string, err error) {
+	ctx = withFixedProviderCredential(ctx, config)
 	policy, err := s.RuntimePolicy()
 	if err != nil {
 		return "", "", err
@@ -206,7 +207,12 @@ func (s *Service) downloadTaskMedia(ctx context.Context, config providerConfig, 
 		}
 	}
 	// 客户端总时限与上下文一致；真正决定何时放弃的是停滞看门狗。
-	response, err := OutboundHTTPClientWithProxy(mediaDownloadMaxDuration, proxyURL).Do(req)
+	client := OutboundHTTPClientWithProxy(mediaDownloadMaxDuration, proxyURL)
+	credential, _ := ctx.Value(fixedProviderKeyContextKey{}).(fixedProviderRequestCredential)
+	if err := credential.authorize(req, client); err != nil {
+		return "", "", err
+	}
+	response, err := client.Do(req)
 	if err != nil {
 		return "", "", mediaDownloadError(downloadCtx, err)
 	}

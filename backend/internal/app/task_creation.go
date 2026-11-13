@@ -133,6 +133,9 @@ func (s *Service) CreateTask(userID string, req CreateTaskRequest) (*model.Task,
 		if err != nil {
 			return nil, err
 		}
+		if err := s.requireFixedTaskCredential(userID, normalizedInput); err != nil {
+			return nil, err
+		}
 	}
 
 	if c, ok := normalizedInput["config"].(map[string]any); ok && stringValue(c["lumiVideoParameters"]) != "" && stringValue(c["interfaceType"]) != "lumi-ark-video" {
@@ -574,7 +577,7 @@ func (s *Service) resolveSystemChannelModelSelection(access *userGroupAccess, in
 	if !channel.Enabled || channel.Scope != model.ChannelScopeSystem {
 		return input, InvalidModelSelection("指定的渠道不可用")
 	}
-	if err := access.requireChannel(channelID); err != nil {
+	if err := s.requireChannelEligibility(access, *channel); err != nil {
 		return input, err
 	}
 
@@ -845,7 +848,7 @@ func taskInputUsesWorkflowProvider(input map[string]any) bool {
 	}
 	// 系统渠道的 interfaceType 是客户端缓存，不是授权事实；必须先走系统模型 admission，
 	// 不能通过伪造工作流协议绕开渠道模型、能力和价格校验。
-	if strings.TrimSpace(stringValue(config["channelId"])) != "" {
+	if strings.TrimSpace(stringValue(config["channelId"])) != "" || systemChannelIDFromBaseURL(stringValue(config["baseUrl"])) != "" {
 		return false
 	}
 	return isWorkflowProviderInterface(strings.TrimSpace(fmt.Sprint(config["interfaceType"])))

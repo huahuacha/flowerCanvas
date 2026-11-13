@@ -2,7 +2,7 @@ import { App, Button, Form, Input, InputNumber, Segmented, Spin, Switch } from "
 import { AdminModal } from "@/pages/admin/ui/overlays";
 import { ChevronRight, Copy, Download, Pencil, Plus, Power, Search, Trash2, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router";
+import { useMatch, useSearchParams } from "react-router";
 import { AdminSearchInput } from "../components/admin-search-input";
 
 import { ChannelHeadersEditor, validateChannelHeaders } from "@/components/channel-headers-editor";
@@ -35,13 +35,12 @@ type ChannelFormValues = {
     proxyUrl?: string;
 };
 
-export function adminChannelSavePayload(values: ChannelFormValues) {
+export function adminChannelSavePayload(values: ChannelFormValues, usesMemberKey = false) {
     return {
         name: values.name.trim(),
         mediaTransport: values.mediaTransport || {},
         baseUrl: values.baseUrl.trim(),
-        apiKey: values.apiKey?.trim() || "",
-        secretKey: values.secretKey?.trim() || "",
+        ...(usesMemberKey ? { credentialSource: "user" as const } : { apiKey: values.apiKey?.trim() || "", secretKey: values.secretKey?.trim() || "" }),
         headers: values.headers || [],
         useGlobalConcurrency: values.useGlobalConcurrency !== false,
         concurrencyLimit: values.useGlobalConcurrency === false ? values.concurrencyLimit : undefined,
@@ -54,10 +53,11 @@ export default function ChannelsPage() {
     const { message, modal } = App.useApp();
     const { reloadReferences } = useAdminContext();
     const [searchParams, setSearchParams] = useSearchParams();
+    const fixedOnly = Boolean(useMatch("/admin/fixed-channels"));
     const keyword = searchParams.get("filter") || "";
     const status = normalizeStatus(searchParams.get("status"));
     const selectedChannelId = searchParams.get("channel");
-    const view = searchParams.get("view") === "models" ? "models" : "channels";
+    const view = !fixedOnly && searchParams.get("view") === "models" ? "models" : "channels";
     const { health, loading: healthLoading, reload: reloadHealth } = useChannelModelHealth();
     // 渠道级 24 小时成功率：按渠道汇总各模型的生成请求，用于左侧列表快速发现异常渠道。
     const channelHealth = new Map<string, { requests: number; succeeded: number }>();
@@ -78,6 +78,7 @@ export default function ChannelsPage() {
     const requestSequence = useRef(0);
     const [form] = Form.useForm<ChannelFormValues>();
     const useGlobalConcurrency = Form.useWatch("useGlobalConcurrency", form) !== false;
+    const usesMemberKey = editingChannel ? editingChannel.credentialSource === "user" : fixedOnly;
     const hasFilters = Boolean(keyword || status !== "all");
     const { visibleChannels, selectedChannel } = selectChannelWorkspace(channels, keyword, status, selectedChannelId);
 
@@ -103,11 +104,12 @@ export default function ChannelsPage() {
         setLoadError("");
         try {
             // The navigation needs every channel, not just the API's default first 20.
-            const result = await listAdminChannels({ page: 1, pageSize: 100 });
+            const credentialSource = fixedOnly ? "user" : undefined;
+            const result = await listAdminChannels({ page: 1, pageSize: 100, credentialSource });
             const nextChannels = [...result.channels];
             for (let page = 2; nextChannels.length < result.total; page += 1) {
                 if (sequence !== requestSequence.current) return;
-                const next = await listAdminChannels({ page, pageSize: 100 });
+                const next = await listAdminChannels({ page, pageSize: 100, credentialSource });
                 if (!next.channels.length) throw new Error("渠道列表发生变化，请重新加载");
                 nextChannels.push(...next.channels);
             }
@@ -125,7 +127,7 @@ export default function ChannelsPage() {
         return () => {
             requestSequence.current += 1;
         };
-    }, []);
+    }, [fixedOnly]);
 
     const syncChannels = async () => {
         void reloadHealth();
@@ -175,13 +177,13 @@ export default function ChannelsPage() {
             message.error(headerError);
             return;
         }
-        if (!editingChannel && !values.apiKey?.trim()) {
+        if (!editingChannel && !usesMemberKey && !values.apiKey?.trim()) {
             message.error("请填写 API Key 或 Access Key");
             return;
         }
         setSaving(true);
         try {
-            const payload = adminChannelSavePayload(values);
+            const payload = adminChannelSavePayload(values, usesMemberKey);
             const { channel } = await (editingChannel ? updateAdminChannel(editingChannel.id, payload) : createAdminChannel(payload));
             setChannels((current) => (editingChannel ? current.map((item) => (item.id === channel.id ? channel : item)) : [...current, channel]));
             updateUrl({ channel: channel.id, filter: "", status: "all" }, true);
@@ -224,11 +226,12 @@ export default function ChannelsPage() {
         }
     };
 
-    // 导出文件不含任何密钥；ids 为空时导出全部系统渠道。
     const exportChannels = async (target?: ModelChannel) => {
+        const ids = target ? [target.id] : fixedOnly ? channels.map((channel) => channel.id) : [];
+        if (fixedOnly && !ids.length) return;
         setTransferring(true);
         try {
-            const exported = await exportAdminChannels(target ? [target.id] : []);
+            const exported = await exportAdminChannels(ids);
             const blob = new Blob([JSON.stringify(exported, null, 2)], { type: "application/json" });
             const url = URL.createObjectURL(blob);
             const link = document.createElement("a");
@@ -257,6 +260,10 @@ export default function ChannelsPage() {
             message.error("不是系统渠道导出文件");
             return;
         }
+        if (fixedOnly && payload.channels.some((channel) => channel?.credentialSource !== "user")) {
+            message.error("请选择只包含固定渠道的导出文件");
+            return;
+        }
         const names = payload.channels.map((item) => item.name).filter(Boolean);
         modal.confirm({
             title: `导入 ${names.length} 个系统渠道？`,
@@ -266,7 +273,7 @@ export default function ChannelsPage() {
                         {names.slice(0, 8).join("、")}
                         {names.length > 8 ? ` 等 ${names.length} 个` : ""}
                     </p>
-                    <p className="text-foreground/60">按渠道名称合并：同名渠道保留现有密钥和启停状态，只更新地址、并发和文件中的模型；新渠道创建为停用状态，填写 API Key 后再启用。文件中没有的模型保持不变。</p>
+                    <p className="text-foreground/60">按渠道名称合并：同名渠道保留现有凭据和启停状态，更新地址、并发和文件中的模型。新渠道创建为停用状态，请检查配置后启用。</p>
                 </div>
             ),
             okText: "开始导入",
@@ -293,7 +300,7 @@ export default function ChannelsPage() {
                             ),
                         });
                     } else {
-                        message.success(result.createdChannels.length ? `${summary}；新渠道需填写 API Key 后启用` : summary);
+                        message.success(result.createdChannels.length ? `${summary}；请检查新渠道配置并启用` : summary);
                     }
                 } catch (error) {
                     message.error(error instanceof Error ? error.message : "导入系统渠道失败");
@@ -348,17 +355,19 @@ export default function ChannelsPage() {
     );
 
     return (
-        <AdminPageFrame title="渠道与模型" description="按渠道管理连接与模型，或切到“全部模型”按名称跨渠道查找、比较价格与稳定性。">
-            <Segmented
-                className="admin-channel-view-switch"
-                aria-label="渠道与模型视图"
-                value={view}
-                onChange={(value) => updateUrl({ view: value === "models" ? "models" : "" })}
-                options={[
-                    { label: "按渠道", value: "channels" },
-                    { label: "全部模型", value: "models" },
-                ]}
-            />
+        <AdminPageFrame title={fixedOnly ? "固定渠道" : "渠道与模型"} description={fixedOnly ? "配置公司共用的 New API 地址和模型。公司成员在个人设置中填写各自的 API Key。" : "按渠道管理连接与模型，或切到“全部模型”按名称跨渠道查找、比较价格与稳定性。"}>
+            {!fixedOnly && (
+                <Segmented
+                    className="admin-channel-view-switch"
+                    aria-label="渠道与模型视图"
+                    value={view}
+                    onChange={(value) => updateUrl({ view: value === "models" ? "models" : "" })}
+                    options={[
+                        { label: "按渠道", value: "channels" },
+                        { label: "全部模型", value: "models" },
+                    ]}
+                />
+            )}
             {view === "models" ? (
                 <AllChannelModelsPanel channels={channels} health={health} healthLoading={healthLoading} onChanged={syncChannels} onOpenChannel={(channelId) => updateUrl({ view: "", channel: channelId, filter: "", status: "all" })} />
             ) : (
@@ -366,17 +375,23 @@ export default function ChannelsPage() {
                     <aside className="admin-channel-sidebar" aria-label="系统渠道">
                         <div className="admin-channel-sidebar-header">
                             <div className="flex items-center justify-between gap-2">
-                                <h2 className="font-semibold">渠道</h2>
+                                <h2 className="font-semibold">{fixedOnly ? "固定渠道" : "渠道"}</h2>
                                 <span className="admin-channel-count">{hasFilters ? `${visibleChannels.length} / ${channels.length}` : channels.length}</span>
                             </div>
-                            <Button block type="primary" icon={<Plus className="size-4" />} onClick={() => setWizardOpen(true)}>
-                                新增渠道
+                            <Button block type="primary" icon={<Plus className="size-4" />} onClick={() => (fixedOnly ? openDrawer() : setWizardOpen(true))}>
+                                {fixedOnly ? "新增固定渠道" : "新增渠道"}
                             </Button>
                             <div className="grid grid-cols-2 gap-2">
                                 <Button size="small" icon={<Upload className="size-3.5" />} loading={transferring} onClick={() => importInputRef.current?.click()}>
                                     导入
                                 </Button>
-                                <Button size="small" icon={<Download className="size-3.5" />} disabled={transferring || !channels.length} onClick={() => void exportChannels()} title="导出全部系统渠道，不含 API Key 等密钥">
+                                <Button
+                                    size="small"
+                                    icon={<Download className="size-3.5" />}
+                                    disabled={transferring || loading || !channels.length}
+                                    onClick={() => void exportChannels()}
+                                    title={fixedOnly ? "导出全部固定渠道" : "导出全部系统渠道，不含 API Key 等密钥"}
+                                >
                                     导出全部
                                 </Button>
                             </div>
@@ -445,17 +460,23 @@ export default function ChannelsPage() {
                                 </button>
                             ))}
                             {!loading && !loadError && !visibleChannels.length ? (
-                                <AdminTableEmpty filtered={hasFilters} title={hasFilters ? undefined : "还没有系统渠道"} action={hasFilters ? <Button onClick={() => updateUrl({ filter: "", status: "all" })}>清除筛选</Button> : undefined} />
+                                <AdminTableEmpty
+                                    filtered={hasFilters}
+                                    title={hasFilters ? undefined : fixedOnly ? "还没有固定渠道" : "还没有系统渠道"}
+                                    action={hasFilters ? <Button onClick={() => updateUrl({ filter: "", status: "all" })}>清除筛选</Button> : undefined}
+                                />
                             ) : null}
                         </div>
-                        <div className="admin-channel-sidebar-footer">
-                            <ChannelOrderDialog
-                                onSaved={async () => {
-                                    await syncChannels();
-                                    await reload();
-                                }}
-                            />
-                        </div>
+                        {!fixedOnly && (
+                            <div className="admin-channel-sidebar-footer">
+                                <ChannelOrderDialog
+                                    onSaved={async () => {
+                                        await syncChannels();
+                                        await reload();
+                                    }}
+                                />
+                            </div>
+                        )}
                     </aside>
                     <section id="admin-channel-models" className="admin-channel-detail" aria-label={selectedChannel ? `${selectedChannel.name}的模型管理` : "渠道模型管理"}>
                         {selectedChannel ? (
@@ -470,7 +491,7 @@ export default function ChannelsPage() {
                                             {selectedChannel.baseUrl}
                                         </p>
                                         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-foreground/50">
-                                            <span>{selectedChannel.hasApiKey ? (selectedChannel.hasSecretKey ? "AK/SK 已配置" : "API Key 已配置") : "凭证未配置"}</span>
+                                            <span>{selectedChannel.credentialSource === "user" ? "使用成员的 New API Key" : selectedChannel.hasApiKey ? (selectedChannel.hasSecretKey ? "AK/SK 已配置" : "API Key 已配置") : "凭证未配置"}</span>
                                             <span>最大并发：{selectedChannel.concurrencyLimit || "跟随系统"}</span>
                                             {selectedChannel.catalogProviderId ? <span>来源：服务商目录 · {selectedChannel.catalogProviderId}</span> : null}
                                         </div>
@@ -491,7 +512,17 @@ export default function ChannelsPage() {
                         ) : (
                             <AdminTableEmpty
                                 title={loading ? "正在加载渠道" : loadError ? "暂时无法读取渠道" : hasFilters ? "没有匹配的渠道" : "添加渠道，开始管理模型"}
-                                description={loading ? "加载完成后将在此显示渠道模型。" : loadError ? "请在左侧重试加载。" : hasFilters ? "调整左侧搜索或状态筛选。" : "在左侧新增渠道，配置连接信息后即可拉取或新增模型。"}
+                                description={
+                                    loading
+                                        ? "加载完成后将在此显示渠道模型。"
+                                        : loadError
+                                          ? "请在左侧重试加载。"
+                                          : hasFilters
+                                            ? "调整左侧搜索或状态筛选。"
+                                            : fixedOnly
+                                              ? "填写 New API 地址，然后手动添加模型。"
+                                              : "在左侧新增渠道，配置连接信息后即可拉取或新增模型。"
+                                }
                             />
                         )}
                     </section>
@@ -500,7 +531,7 @@ export default function ChannelsPage() {
             <AdminModal
                 className="workspace-modal workspace-modal-wide admin-channel-modal"
                 rootClassName="admin-channel-modal-root"
-                title={editingChannel ? "编辑系统渠道" : "新增系统渠道"}
+                title={`${editingChannel ? "编辑" : "新增"}${usesMemberKey ? "固定渠道" : "系统渠道"}`}
                 open={drawerOpen}
                 width={760}
                 centered
@@ -521,19 +552,25 @@ export default function ChannelsPage() {
                         <Input placeholder="例如：OpenAI 官方渠道" />
                     </Form.Item>
                     <Form.Item name="baseUrl" label="Base URL" rules={[{ required: true, message: "请填写 Base URL" }]}>
-                        <Input placeholder="填写云端渠道 Base URL" />
+                        <Input placeholder={usesMemberKey ? "填写 New API Base URL" : "填写云端渠道 Base URL"} />
                     </Form.Item>
-                    <Form.Item
-                        name="apiKey"
-                        label={editingChannel ? `API Key / Access Key（${configuredSecretText}）` : "API Key / Access Key"}
-                        rules={editingChannel ? [] : [{ required: true, message: "请填写 API Key 或 Access Key" }]}
-                        extra="OpenAI 兼容协议填写 API Key；即梦官方协议填写 IAM Access Key。"
-                    >
-                        <Input.Password autoComplete="new-password" placeholder={editingChannel ? "留空保留原凭证" : "API Key 或 Access Key"} />
-                    </Form.Item>
-                    <Form.Item name="secretKey" label={editingChannel ? `Secret Key（${channelSecretText(editingChannel)}）` : "Secret Key（可选）"} extra="仅即梦官方等 AK/SK 签名协议需要；其他渠道留空。">
-                        <Input.Password autoComplete="new-password" placeholder={editingChannel ? "留空保留原 Secret Key" : "IAM Secret Key"} />
-                    </Form.Item>
+                    {usesMemberKey ? (
+                        <p className="mb-6 text-sm text-muted-foreground">每位成员在「个人设置 → 渠道与存储 → 固定渠道」填写自己的 New API Key。</p>
+                    ) : (
+                        <>
+                            <Form.Item
+                                name="apiKey"
+                                label={editingChannel ? `API Key / Access Key（${configuredSecretText}）` : "API Key / Access Key"}
+                                rules={editingChannel ? [] : [{ required: true, message: "请填写 API Key 或 Access Key" }]}
+                                extra="OpenAI 兼容协议填写 API Key；即梦官方协议填写 IAM Access Key。"
+                            >
+                                <Input.Password autoComplete="new-password" placeholder={editingChannel ? "留空保留原凭证" : "API Key 或 Access Key"} />
+                            </Form.Item>
+                            <Form.Item name="secretKey" label={editingChannel ? `Secret Key（${channelSecretText(editingChannel)}）` : "Secret Key（可选）"} extra="仅即梦官方等 AK/SK 签名协议需要；其他渠道留空。">
+                                <Input.Password autoComplete="new-password" placeholder={editingChannel ? "留空保留原 Secret Key" : "IAM Secret Key"} />
+                            </Form.Item>
+                        </>
+                    )}
                     <div className="mb-6">
                         <Form.Item name="headers" noStyle>
                             <ChannelHeadersEditor />

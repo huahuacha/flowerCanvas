@@ -176,9 +176,10 @@ type cachedLogicalModel struct {
 }
 
 type cachedLogicalRoute struct {
-	Route          model.LogicalModelRoute
-	CapabilitySpec CapabilitySpec
-	ChannelModel   model.ChannelModel
+	CredentialSource model.ChannelCredentialSource
+	Route            model.LogicalModelRoute
+	CapabilitySpec   CapabilitySpec
+	ChannelModel     model.ChannelModel
 }
 
 type routeCatalogSnapshot struct {

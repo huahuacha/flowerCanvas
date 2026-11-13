@@ -87,7 +87,7 @@ func (s *Service) requestProviderCancellation(ctx context.Context, task *model.T
 	defer cancel()
 	requestTask := *task
 	requestTask.InputJSON = mustJSON(input)
-	requestCtx = withProviderRequestKind(withProviderAnalytics(requestCtx, s, requestTask), "cancel")
+	requestCtx = withFixedProviderCredential(withProviderRequestKind(withProviderAnalytics(requestCtx, s, requestTask), "cancel"), input.Config)
 	if err := s.cancelProviderTask(requestCtx, input, task.ProviderRequestID); err != nil {
 		return s.markProviderCancellationUncertain(task, "上游取消请求结果不明确，费用待核对："+safeProviderLogError(err))
 	}
@@ -106,7 +106,7 @@ func (s *Service) reconcileProviderCancellation(ctx context.Context, task *model
 	}
 	queryTask := *task
 	queryTask.InputJSON = mustJSON(input)
-	queryCtx := withProviderRequestKind(withProviderAnalytics(ctx, s, queryTask), "cancel-query")
+	queryCtx := withFixedProviderCredential(withProviderRequestKind(withProviderAnalytics(ctx, s, queryTask), "cancel-query"), input.Config)
 	outcome, providerStatus, err := s.queryProviderCancellation(queryCtx, input, task.ProviderRequestID)
 	if err != nil {
 		if task.ProviderCancelAttempts >= providerCancellationMaxAttempts-1 {
@@ -186,7 +186,7 @@ func (s *Service) providerCancellationInput(task *model.Task) (canvasGenerationI
 	if err := json.Unmarshal([]byte(decrypted), &input); err != nil {
 		return canvasGenerationInput{}, err
 	}
-	config, err := s.resolveProviderConfig(input.Config)
+	config, err := s.resolveSubmittedTaskProviderConfig(task, input.Config)
 	if err != nil {
 		return canvasGenerationInput{}, err
 	}

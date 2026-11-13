@@ -305,8 +305,27 @@ func doBinaryWithConsumer(req *http.Request, onChunk func(string, []byte)) ([]by
 	}
 	ApplyDefaultOutboundHeaders(req)
 	client := OutboundHTTPClientWithProxy(requestTimeout, channelProxyURL)
+	fixedCredential, _ := req.Context().Value(fixedProviderKeyContextKey{}).(fixedProviderRequestCredential)
+	credential := fixedCredential.key
+	if err := fixedCredential.authorize(req, client); err != nil {
+		recordProviderRequest(req, startedAt, 0, nil, err)
+		return nil, "", providerNotSubmittedError{err}
+	}
+	if metadata, ok := req.Context().Value(providerAnalyticsKey{}).(providerAnalyticsContext); ok &&
+		runtimeService != nil && metadata.TaskID != "" && firstNonEmpty(requestKind, providerRequestKind(req.Method, req.URL.Path)) == "create" {
+		if _, err := runtimeService.requireActiveTaskOwner(metadata.UserID); err != nil {
+			recordProviderRequest(req, startedAt, 0, nil, err)
+			return nil, "", providerNotSubmittedError{err}
+		}
+	}
 	resp, err := client.Do(req)
 	if err != nil {
+		var requestErr *url.Error
+		if credential != "" && errors.As(err, &requestErr) {
+			safeErr := *requestErr
+			safeErr.URL = "[固定渠道地址]"
+			err = &safeErr
+		}
 		err = providerConnectionError(err)
 		if runtimeService != nil && !cacheManagementRequest {
 			_ = runtimeService.RecordChannelResult(req.Context(), channelID, !errors.Is(err, context.Canceled))
@@ -353,6 +372,9 @@ func doBinaryWithConsumer(req *http.Request, onChunk func(string, []byte)) ([]by
 		return nil, "", err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if credential != "" {
+			data = redactFixedProviderCredential(data, credential)
+		}
 		if runtimeService != nil && !cacheManagementRequest {
 			_ = runtimeService.RecordChannelResult(req.Context(), channelID, resp.StatusCode >= 500)
 		}
@@ -405,6 +427,11 @@ func recordProviderRequest(req *http.Request, startedAt time.Time, statusCode in
 	if !ok || metadata.Service == nil {
 		return
 	}
+	fixedCredential, _ := req.Context().Value(fixedProviderKeyContextKey{}).(fixedProviderRequestCredential)
+	credential := fixedCredential.key
+	if credential != "" {
+		responseBody = redactFixedProviderCredential(responseBody, credential)
+	}
 	status := model.ApiCallStatusSucceeded
 	errorCode := ""
 	errorText := ""
@@ -435,6 +462,12 @@ func recordProviderRequest(req *http.Request, startedAt time.Time, statusCode in
 		Status: status, StatusCode: statusCode, DurationMs: time.Since(startedAt).Milliseconds(),
 		ErrorCode: errorCode, Error: errorText, ConcurrencyLimit: metadata.ConcurrencyLimit, UpstreamURL: req.URL.Scheme + "://" + req.URL.Host + req.URL.Path,
 		ProviderRequestID: metadata.ProviderRequestID, RequestContentType: req.Header.Get("Content-Type"), RequestBody: requestPayloadForLog(req), ResponseBody: SanitizeAPICallPayload(responseBody, ""),
+	}
+	if credential != "" {
+		callLog.Error = strings.ReplaceAll(callLog.Error, credential, "[REDACTED]")
+		callLog.RequestBody = strings.ReplaceAll(callLog.RequestBody, credential, "[REDACTED]")
+		callLog.Path = strings.ReplaceAll(callLog.Path, credential, "[REDACTED]")
+		callLog.UpstreamURL = strings.ReplaceAll(callLog.UpstreamURL, credential, "[REDACTED]")
 	}
 	channelSlotFailure := false
 	if code, message := ChannelSlotFailureDetails(requestErr); code != "" {

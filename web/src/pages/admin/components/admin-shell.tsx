@@ -7,6 +7,7 @@ import {
     BellRing,
     BookMarked,
     Bot,
+    Building2,
     ChevronDown,
     CloudUpload,
     Coins,
@@ -97,6 +98,7 @@ const adminNavigation: AdminNavigationGroup[] = [
         label: "用户与运营",
         items: [
             { path: "/admin/users", keywords: "账号 用户 权限 封禁 密码", label: "用户管理", shortLabel: "用户", icon: <UsersRound className="size-4" /> },
+            { path: "/admin/companies", keywords: "公司 企业 客户 成员 员工 开户", label: "公司管理", shortLabel: "公司", icon: <Building2 className="size-4" /> },
             { path: "/admin/user-groups", keywords: "用户组 倍率 VIP 定价", label: "用户分组", shortLabel: "分组", icon: <Crown className="size-4" /> },
             { path: "/admin/credit-operations", keywords: "积分 余额 账务 退款", label: "积分运营", shortLabel: "积分", icon: <Coins className="size-4" /> },
             { path: "/admin/payments", keywords: "支付 充值 订单 商品 支付宝 微信", label: "支付充值", shortLabel: "支付", icon: <CreditCard className="size-4" /> },
@@ -113,6 +115,7 @@ const adminNavigation: AdminNavigationGroup[] = [
         label: "模型与渠道",
         items: [
             { path: "/admin/channels", keywords: "渠道 模型 API Key 密钥 上游 定价 协议", label: "渠道与模型", shortLabel: "渠道", icon: <RadioTower className="size-4" /> },
+            { path: "/admin/fixed-channels", keywords: "固定渠道 New API 公司 上游 模型", label: "固定渠道", shortLabel: "固定", icon: <KeyRound className="size-4" /> },
             { path: "/admin/models", keywords: "前台模型 逻辑模型 能力", label: "前台模型", shortLabel: "模型", icon: <Layers3 className="size-4" />, requireFeature: "frontendModelsEnabled" },
         ],
     },

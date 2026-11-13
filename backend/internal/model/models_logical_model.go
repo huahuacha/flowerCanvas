@@ -64,22 +64,23 @@ type LogicalModelRoute struct {
 }
 
 type RouteAttempt struct {
-	ID                     string     `json:"id" gorm:"primaryKey;size:36"`
-	TaskID                 string     `json:"taskId" gorm:"size:36;index;uniqueIndex:idx_route_attempt_run_number,priority:1"`
-	RouteRun               int        `json:"routeRun" gorm:"index;uniqueIndex:idx_route_attempt_run_number,priority:2"`
-	AttemptNumber          int        `json:"attemptNumber" gorm:"uniqueIndex:idx_route_attempt_run_number,priority:3"`
-	LogicalModelID         string     `json:"logicalModelId" gorm:"size:36;index"`
-	LogicalModelRevisionID string     `json:"logicalModelRevisionId" gorm:"size:36;index"`
-	RouteID                string     `json:"routeId" gorm:"size:36;index"`
-	ChannelModelID         string     `json:"channelModelId" gorm:"size:36;index"`
-	ChannelID              string     `json:"channelId" gorm:"size:36;index"`
-	Status                 string     `json:"status" gorm:"size:32;index"`
-	DispatchState          string     `json:"dispatchState" gorm:"size:32;index"`
-	ProviderRequestID      string     `json:"providerRequestId" gorm:"size:160;index"`
-	FailureCode            string     `json:"failureCode" gorm:"size:80"`
-	FailureMessage         string     `json:"failureMessage" gorm:"size:1000"`
-	StartedAt              time.Time  `json:"startedAt"`
-	CompletedAt            *time.Time `json:"completedAt"`
+	ID                         string     `json:"id" gorm:"primaryKey;size:36"`
+	TaskID                     string     `json:"taskId" gorm:"size:36;index;uniqueIndex:idx_route_attempt_run_number,priority:1"`
+	RouteRun                   int        `json:"routeRun" gorm:"index;uniqueIndex:idx_route_attempt_run_number,priority:2"`
+	AttemptNumber              int        `json:"attemptNumber" gorm:"uniqueIndex:idx_route_attempt_run_number,priority:3"`
+	LogicalModelID             string     `json:"logicalModelId" gorm:"size:36;index"`
+	LogicalModelRevisionID     string     `json:"logicalModelRevisionId" gorm:"size:36;index"`
+	RouteID                    string     `json:"routeId" gorm:"size:36;index"`
+	ChannelModelID             string     `json:"channelModelId" gorm:"size:36;index"`
+	ChannelID                  string     `json:"channelId" gorm:"size:36;index"`
+	Status                     string     `json:"status" gorm:"size:32;index"`
+	DispatchState              string     `json:"dispatchState" gorm:"size:32;index"`
+	ProviderRequestID          string     `json:"providerRequestId" gorm:"size:160;index"`
+	SubmissionCredentialCipher string     `json:"-" gorm:"type:text"`
+	FailureCode                string     `json:"failureCode" gorm:"size:80"`
+	FailureMessage             string     `json:"failureMessage" gorm:"size:1000"`
+	StartedAt                  time.Time  `json:"startedAt"`
+	CompletedAt                *time.Time `json:"completedAt"`
 }
 
 // LogicalModelPriceSKU 表示前台模型在统一定价模式下的独立售价 SKU。

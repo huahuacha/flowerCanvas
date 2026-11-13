@@ -7,11 +7,12 @@ import (
 )
 
 type ModelChannel struct {
-	ID      string       `json:"id" gorm:"primaryKey;size:36"`
-	UserID  string       `json:"userId" gorm:"index;size:36"`
-	Scope   ChannelScope `json:"scope" gorm:"index;size:24"`
-	Enabled bool         `json:"enabled" gorm:"index"`
-	Name    string       `json:"name" gorm:"size:80"`
+	ID               string                  `json:"id" gorm:"primaryKey;size:36"`
+	UserID           string                  `json:"userId" gorm:"index;size:36"`
+	Scope            ChannelScope            `json:"scope" gorm:"index;size:24"`
+	Enabled          bool                    `json:"enabled" gorm:"index"`
+	Name             string                  `json:"name" gorm:"size:80"`
+	CredentialSource ChannelCredentialSource `json:"credentialSource" gorm:"size:16;not null;default:platform"`
 	// PublicAlias 仅保留历史列供旧迁移读取，运行时不再使用渠道级前台名称。
 	PublicAlias      string `json:"-" gorm:"size:80;not null;default:''"`
 	SortOrder        int    `json:"sortOrder" gorm:"not null;default:0"`

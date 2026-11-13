@@ -61,7 +61,7 @@ func (s *Service) PublicLogicalModels(access *userGroupAccess, intent *ModelRequ
 func (s *Service) groupLogicalModel(policy CreditPolicy, access *userGroupAccess, cached cachedLogicalModel) (cachedLogicalModel, bool, error) {
 	routes := make([]cachedLogicalRoute, 0, len(cached.Routes))
 	for _, route := range cached.Routes {
-		if !access.allowsChannel(route.ChannelModel.ChannelID) {
+		if !s.logicalRouteVisible(access, route) {
 			continue
 		}
 		if cached.Model.PricePolicy == "channel" {
@@ -107,6 +107,13 @@ func (s *Service) groupLogicalModel(policy CreditPolicy, access *userGroupAccess
 		cached.Model = item
 	}
 	return cached, true, nil
+}
+
+func (s *Service) logicalRouteVisible(access *userGroupAccess, route cachedLogicalRoute) bool {
+	if access == nil {
+		return route.CredentialSource != model.ChannelCredentialSourceUser
+	}
+	return s.requireChannelEligibility(access, model.ModelChannel{ID: route.ChannelModel.ChannelID, CredentialSource: route.CredentialSource}) == nil
 }
 
 func publicLogicalModel(cached cachedLogicalModel, available bool) PublicLogicalModel {

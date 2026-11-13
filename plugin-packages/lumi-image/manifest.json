@@ -1,0 +1,388 @@
+{
+  "apiVersion": "yingce.plugin/v2",
+  "id": "lumi-image",
+  "name": "Lumi Image (New API)",
+  "version": "1.0.0",
+  "author": "影策",
+  "description": "通过 New API 的 Lumi Image 渠道生成 Seedream 图片。",
+  "documentation": "# Lumi Image (New API)\n\n在 New API 启用 Lumi Image（类型 62）渠道，配置 Lumi 上游 Key、可用模型、用户分组及按次预扣价格。在影策安装本插件后，新建图片渠道，协议选 **Lumi Image (New API)**，Base URL 填 New API 根地址，API Key 填该平台签发的模型令牌。模型 ID 使用 `seedream5.5` 或 `seedream5.0`，并与 New API 对外提供的模型一致。\n\n影策通过 `POST /v1/images/jobs` 提交提示词、可公网访问的 HTTPS 参考图及宿主生成的幂等键。创建后使用返回的 `job_id` 查询 `GET /v1/images/jobs/{job_id}`。成功时转存 `results[].tos_url` 的签名图片。若返回中只有需要 Lumi 上游凭证的 `stable_url`，影策无法从 New API 下载该结果。\n\nSeedream 5.5 使用布尔参数 `optimize_prompt`。Seedream 5.0 可通过协议扩展参数 `optimize_prompt_options` 传入优化配置。New API 继续负责其预扣和结算，影策协议读取其用量元数据。\n\n---\n\n# Lumi Image (New API) 接口\n\n- 鉴权使用 `Authorization: Bearer <apiKey>`，其中 `apiKey` 是 New API 模型令牌。\n- 创建使用 `POST /v1/images/jobs`。请求包括 `model`、`user_prompt`、`idempotency_key`、可选的 `reference_images` 和模型参数 `parameters`。\n- 查询使用 `GET /v1/images/jobs/{job_id}`，其中 `job_id` 取自创建响应。\n- 响应中的 `queued`、`submitting`、`polling`、`transferring` 映射为处理中，`failed` 保留失败语义。成功任务使用 `results[].tos_url` 作为临时图片地址，交给影策转存。\n- 用量元数据使用 `new_api_billing`，顶层 `consumed_amount` 单独记录为 `provider_amount`。\n\n<!-- YINGCE_MANIFEST_CONTRACT_START -->\n## Manifest 完整接口定义\n\n以下 JSON 与插件包内实际 `manifest.json` 逐字段一致，覆盖插件身份、权限、配置、鉴权、参数、校验、创建、Agent、查询、取消、结果下载、响应和 Agent 响应映射。`documentation` 字段的值就是当前完整文档；为避免文档在自身内部无限递归，JSON 中仅用等义占位文本表示正文。\n\n```json\n{\n  \"apiVersion\": \"yingce.plugin/v2\",\n  \"id\": \"lumi-image\",\n  \"name\": \"Lumi Image (New API)\",\n  \"version\": \"1.0.0\",\n  \"author\": \"影策\",\n  \"description\": \"通过 New API 的 Lumi Image 渠道生成 Seedream 图片。\",\n  \"documentation\": \"<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>\",\n  \"permissions\": [\n    \"generation.run\",\n    \"media.read\"\n  ],\n  \"configuration\": {\n    \"fields\": [\n      {\n        \"name\": \"apiKey\",\n        \"type\": \"secret\",\n        \"label\": \"New API 模型令牌\",\n        \"required\": true\n      }\n    ]\n  },\n  \"contributes\": {\n    \"providers\": [\n      {\n        \"id\": \"lumi-image\",\n        \"label\": \"Lumi Image (New API)\",\n        \"capabilities\": [\n          \"image\"\n        ],\n        \"scopes\": [\n          \"admin.system-channel\",\n          \"user.custom-channel\",\n          \"canvas\",\n          \"creation\",\n          \"agent\"\n        ],\n        \"requiresPublicMediaUrls\": true,\n        \"idempotentCreate\": true,\n        \"auth\": {\n          \"type\": \"bearer\",\n          \"field\": \"apiKey\"\n        },\n        \"create\": {\n          \"method\": \"POST\",\n          \"path\": \"/v1/images/jobs\",\n          \"contentType\": \"application/json\",\n          \"body\": {\n            \"model\": {\n              \"$ref\": \"request.model\"\n            },\n            \"user_prompt\": {\n              \"$ref\": \"request.prompt\"\n            },\n            \"idempotency_key\": {\n              \"$ref\": \"request.extra.idempotencyKey\"\n            },\n            \"reference_images\": {\n              \"$omitEmpty\": {\n                \"$map\": {\n                  \"from\": {\n                    \"$sortByOrder\": {\n                      \"$ref\": \"request.images\"\n                    }\n                  },\n                  \"as\": \"media\",\n                  \"in\": {\n                    \"$ref\": \"media.url\"\n                  }\n                }\n              }\n            },\n            \"parameters\": {\n              \"size\": {\n                \"$omitEmpty\": {\n                  \"$coalesce\": [\n                    {\n                      \"$ref\": \"request.providerOptions.lumi-image.size\"\n                    },\n                    {\n                      \"$switch\": {\n                        \"cases\": [\n                          {\n                            \"when\": {\n                              \"$eq\": [\n                                {\n                                  \"$ref\": \"request.aspectRatio\"\n                                },\n                                \"1:1\"\n                              ]\n                            },\n                            \"then\": \"2048x2048\"\n                          },\n                          {\n                            \"when\": {\n                              \"$eq\": [\n                                {\n                                  \"$ref\": \"request.aspectRatio\"\n                                },\n                                \"4:3\"\n                              ]\n                            },\n                            \"then\": \"2304x1728\"\n                          },\n                          {\n                            \"when\": {\n                              \"$eq\": [\n                                {\n                                  \"$ref\": \"request.aspectRatio\"\n                                },\n                                \"3:4\"\n                              ]\n                            },\n                            \"then\": \"1728x2304\"\n                          },\n                          {\n                            \"when\": {\n                              \"$eq\": [\n                                {\n                                  \"$ref\": \"request.aspectRatio\"\n                                },\n                                \"16:9\"\n                              ]\n                            },\n                            \"then\": \"2560x1440\"\n                          },\n                          {\n                            \"when\": {\n                              \"$eq\": [\n                                {\n                                  \"$ref\": \"request.aspectRatio\"\n                                },\n                                \"9:16\"\n                              ]\n                            },\n                            \"then\": \"1440x2560\"\n                          },\n                          {\n                            \"when\": {\n                              \"$eq\": [\n                                {\n                                  \"$ref\": \"request.aspectRatio\"\n                                },\n                                \"3:2\"\n                              ]\n                            },\n                            \"then\": \"2496x1664\"\n                          },\n                          {\n                            \"when\": {\n                              \"$eq\": [\n                                {\n                                  \"$ref\": \"request.aspectRatio\"\n                                },\n                                \"2:3\"\n                              ]\n                            },\n                            \"then\": \"1664x2496\"\n                          },\n                          {\n                            \"when\": {\n                              \"$eq\": [\n                                {\n                                  \"$ref\": \"request.aspectRatio\"\n                                },\n                                \"21:9\"\n                              ]\n                            },\n                            \"then\": \"3024x1296\"\n                          },\n                          {\n                            \"when\": {\n                              \"$in\": [\n                                {\n                                  \"$ref\": \"request.aspectRatio\"\n                                },\n                                [\n                                  \"auto\",\n                                  \"Auto\"\n                                ]\n                              ]\n                            },\n                            \"then\": {\n                              \"$ref\": \"request.resolution\"\n                            }\n                          }\n                        ],\n                        \"default\": {\n                          \"$ref\": \"request.aspectRatio\"\n                        }\n                      }\n                    },\n                    {\n                      \"$ref\": \"request.resolution\"\n                    }\n                  ]\n                }\n              },\n              \"output_format\": {\n                \"$ref\": \"request.providerOptions.lumi-image.output_format\"\n              },\n              \"background\": {\n                \"$ref\": \"request.providerOptions.lumi-image.background\"\n              },\n              \"watermark\": {\n                \"$ref\": \"request.providerOptions.lumi-image.watermark\"\n              },\n              \"seed\": {\n                \"$ref\": \"request.providerOptions.lumi-image.seed\"\n              },\n              \"optimize_prompt\": {\n                \"$if\": {\n                  \"condition\": {\n                    \"$eq\": [\n                      {\n                        \"$ref\": \"request.model\"\n                      },\n                      \"seedream5.5\"\n                    ]\n                  },\n                  \"then\": {\n                    \"$ref\": \"request.providerOptions.lumi-image.optimize_prompt\"\n                  }\n                }\n              },\n              \"optimize_prompt_options\": {\n                \"$if\": {\n                  \"condition\": {\n                    \"$eq\": [\n                      {\n                        \"$ref\": \"request.model\"\n                      },\n                      \"seedream5.5\"\n                    ]\n                  },\n                  \"else\": {\n                    \"$ref\": \"request.providerOptions.lumi-image.optimize_prompt_options\"\n                  }\n                }\n              }\n            },\n            \"metadata\": {\n              \"$omitEmpty\": {\n                \"$ref\": \"request.providerOptions.lumi-image.metadata\"\n              }\n            }\n          }\n        },\n        \"poll\": {\n          \"method\": \"GET\",\n          \"path\": \"/v1/images/jobs/{{taskId}}\"\n        },\n        \"response\": {\n          \"taskId\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.job_id\"\n              },\n              {\n                \"$ref\": \"taskId\"\n              }\n            ]\n          },\n          \"status\": {\n            \"$switch\": {\n              \"cases\": [\n                {\n                  \"when\": {\n                    \"$in\": [\n                      {\n                        \"$ref\": \"response.status\"\n                      },\n                      [\n                        \"queued\",\n                        \"submitting\",\n                        \"polling\",\n                        \"transferring\"\n                      ]\n                    ]\n                  },\n                  \"then\": \"processing\"\n                },\n                {\n                  \"when\": {\n                    \"$eq\": [\n                      {\n                        \"$ref\": \"response.status\"\n                      },\n                      \"succeeded\"\n                    ]\n                  },\n                  \"then\": \"succeeded\"\n                }\n              ],\n              \"default\": \"failed\"\n            }\n          },\n          \"message\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.error.message\"\n              },\n              {\n                \"$ref\": \"response.detail.message\"\n              },\n              \"Lumi 图片任务失败或返回未知状态\"\n            ]\n          },\n          \"images\": {\n            \"$map\": {\n              \"from\": {\n                \"$ref\": \"response.results\"\n              },\n              \"as\": \"result\",\n              \"in\": {\n                \"$ref\": \"result.tos_url\"\n              }\n            }\n          },\n          \"usage\": {\n            \"$merge\": [\n              {\n                \"$ref\": \"response.new_api_billing\"\n              },\n              {\n                \"provider_amount\": {\n                  \"$ref\": \"response.consumed_amount\"\n                }\n              }\n            ]\n          },\n          \"errorPaths\": [\n            \"error.code\",\n            \"detail.code\"\n          ],\n          \"resultEphemeral\": true\n        },\n        \"imageParameters\": [\n          {\n            \"name\": \"size\",\n            \"label\": \"画幅 / 尺寸\",\n            \"type\": \"string\",\n            \"binding\": \"aspectRatio\",\n            \"encoding\": \"pixels\",\n            \"pricing\": true\n          },\n          {\n            \"name\": \"output_format\",\n            \"label\": \"输出格式\",\n            \"type\": \"string\",\n            \"binding\": \"providerOptions.lumi-image.output_format\",\n            \"values\": [\n              \"jpeg\",\n              \"png\"\n            ]\n          },\n          {\n            \"name\": \"background\",\n            \"label\": \"背景\",\n            \"type\": \"string\",\n            \"binding\": \"providerOptions.lumi-image.background\"\n          },\n          {\n            \"name\": \"watermark\",\n            \"label\": \"水印\",\n            \"type\": \"boolean\",\n            \"binding\": \"providerOptions.lumi-image.watermark\"\n          },\n          {\n            \"name\": \"seed\",\n            \"label\": \"随机种子\",\n            \"type\": \"integer\",\n            \"binding\": \"providerOptions.lumi-image.seed\"\n          },\n          {\n            \"name\": \"optimize_prompt\",\n            \"label\": \"提示词优化\",\n            \"type\": \"boolean\",\n            \"binding\": \"providerOptions.lumi-image.optimize_prompt\",\n            \"models\": [\n              \"seedream5.5\"\n            ]\n          }\n        ]\n      }\n    ]\n  }\n}\n```\n<!-- YINGCE_MANIFEST_CONTRACT_END -->\n",
+  "permissions": [
+    "generation.run",
+    "media.read"
+  ],
+  "configuration": {
+    "fields": [
+      {
+        "name": "apiKey",
+        "type": "secret",
+        "label": "New API 模型令牌",
+        "required": true
+      }
+    ]
+  },
+  "contributes": {
+    "providers": [
+      {
+        "id": "lumi-image",
+        "label": "Lumi Image (New API)",
+        "capabilities": [
+          "image"
+        ],
+        "scopes": [
+          "admin.system-channel",
+          "user.custom-channel",
+          "canvas",
+          "creation",
+          "agent"
+        ],
+        "requiresPublicMediaUrls": true,
+        "idempotentCreate": true,
+        "auth": {
+          "type": "bearer",
+          "field": "apiKey"
+        },
+        "create": {
+          "method": "POST",
+          "path": "/v1/images/jobs",
+          "contentType": "application/json",
+          "body": {
+            "model": {
+              "$ref": "request.model"
+            },
+            "user_prompt": {
+              "$ref": "request.prompt"
+            },
+            "idempotency_key": {
+              "$ref": "request.extra.idempotencyKey"
+            },
+            "reference_images": {
+              "$omitEmpty": {
+                "$map": {
+                  "from": {
+                    "$sortByOrder": {
+                      "$ref": "request.images"
+                    }
+                  },
+                  "as": "media",
+                  "in": {
+                    "$ref": "media.url"
+                  }
+                }
+              }
+            },
+            "parameters": {
+              "size": {
+                "$omitEmpty": {
+                  "$coalesce": [
+                    {
+                      "$ref": "request.providerOptions.lumi-image.size"
+                    },
+                    {
+                      "$switch": {
+                        "cases": [
+                          {
+                            "when": {
+                              "$eq": [
+                                {
+                                  "$ref": "request.aspectRatio"
+                                },
+                                "1:1"
+                              ]
+                            },
+                            "then": "2048x2048"
+                          },
+                          {
+                            "when": {
+                              "$eq": [
+                                {
+                                  "$ref": "request.aspectRatio"
+                                },
+                                "4:3"
+                              ]
+                            },
+                            "then": "2304x1728"
+                          },
+                          {
+                            "when": {
+                              "$eq": [
+                                {
+                                  "$ref": "request.aspectRatio"
+                                },
+                                "3:4"
+                              ]
+                            },
+                            "then": "1728x2304"
+                          },
+                          {
+                            "when": {
+                              "$eq": [
+                                {
+                                  "$ref": "request.aspectRatio"
+                                },
+                                "16:9"
+                              ]
+                            },
+                            "then": "2560x1440"
+                          },
+                          {
+                            "when": {
+                              "$eq": [
+                                {
+                                  "$ref": "request.aspectRatio"
+                                },
+                                "9:16"
+                              ]
+                            },
+                            "then": "1440x2560"
+                          },
+                          {
+                            "when": {
+                              "$eq": [
+                                {
+                                  "$ref": "request.aspectRatio"
+                                },
+                                "3:2"
+                              ]
+                            },
+                            "then": "2496x1664"
+                          },
+                          {
+                            "when": {
+                              "$eq": [
+                                {
+                                  "$ref": "request.aspectRatio"
+                                },
+                                "2:3"
+                              ]
+                            },
+                            "then": "1664x2496"
+                          },
+                          {
+                            "when": {
+                              "$eq": [
+                                {
+                                  "$ref": "request.aspectRatio"
+                                },
+                                "21:9"
+                              ]
+                            },
+                            "then": "3024x1296"
+                          },
+                          {
+                            "when": {
+                              "$in": [
+                                {
+                                  "$ref": "request.aspectRatio"
+                                },
+                                [
+                                  "auto",
+                                  "Auto"
+                                ]
+                              ]
+                            },
+                            "then": {
+                              "$ref": "request.resolution"
+                            }
+                          }
+                        ],
+                        "default": {
+                          "$ref": "request.aspectRatio"
+                        }
+                      }
+                    },
+                    {
+                      "$ref": "request.resolution"
+                    }
+                  ]
+                }
+              },
+              "output_format": {
+                "$ref": "request.providerOptions.lumi-image.output_format"
+              },
+              "background": {
+                "$ref": "request.providerOptions.lumi-image.background"
+              },
+              "watermark": {
+                "$ref": "request.providerOptions.lumi-image.watermark"
+              },
+              "seed": {
+                "$ref": "request.providerOptions.lumi-image.seed"
+              },
+              "optimize_prompt": {
+                "$if": {
+                  "condition": {
+                    "$eq": [
+                      {
+                        "$ref": "request.model"
+                      },
+                      "seedream5.5"
+                    ]
+                  },
+                  "then": {
+                    "$ref": "request.providerOptions.lumi-image.optimize_prompt"
+                  }
+                }
+              },
+              "optimize_prompt_options": {
+                "$if": {
+                  "condition": {
+                    "$eq": [
+                      {
+                        "$ref": "request.model"
+                      },
+                      "seedream5.5"
+                    ]
+                  },
+                  "else": {
+                    "$ref": "request.providerOptions.lumi-image.optimize_prompt_options"
+                  }
+                }
+              }
+            },
+            "metadata": {
+              "$omitEmpty": {
+                "$ref": "request.providerOptions.lumi-image.metadata"
+              }
+            }
+          }
+        },
+        "poll": {
+          "method": "GET",
+          "path": "/v1/images/jobs/{{taskId}}"
+        },
+        "response": {
+          "taskId": {
+            "$coalesce": [
+              {
+                "$ref": "response.job_id"
+              },
+              {
+                "$ref": "taskId"
+              }
+            ]
+          },
+          "status": {
+            "$switch": {
+              "cases": [
+                {
+                  "when": {
+                    "$in": [
+                      {
+                        "$ref": "response.status"
+                      },
+                      [
+                        "queued",
+                        "submitting",
+                        "polling",
+                        "transferring"
+                      ]
+                    ]
+                  },
+                  "then": "processing"
+                },
+                {
+                  "when": {
+                    "$eq": [
+                      {
+                        "$ref": "response.status"
+                      },
+                      "succeeded"
+                    ]
+                  },
+                  "then": "succeeded"
+                }
+              ],
+              "default": "failed"
+            }
+          },
+          "message": {
+            "$coalesce": [
+              {
+                "$ref": "response.error.message"
+              },
+              {
+                "$ref": "response.detail.message"
+              },
+              "Lumi 图片任务失败或返回未知状态"
+            ]
+          },
+          "images": {
+            "$map": {
+              "from": {
+                "$ref": "response.results"
+              },
+              "as": "result",
+              "in": {
+                "$ref": "result.tos_url"
+              }
+            }
+          },
+          "usage": {
+            "$merge": [
+              {
+                "$ref": "response.new_api_billing"
+              },
+              {
+                "provider_amount": {
+                  "$ref": "response.consumed_amount"
+                }
+              }
+            ]
+          },
+          "errorPaths": [
+            "error.code",
+            "detail.code"
+          ],
+          "resultEphemeral": true
+        },
+        "imageParameters": [
+          {
+            "name": "size",
+            "label": "画幅 / 尺寸",
+            "type": "string",
+            "binding": "aspectRatio",
+            "encoding": "pixels",
+            "pricing": true
+          },
+          {
+            "name": "output_format",
+            "label": "输出格式",
+            "type": "string",
+            "binding": "providerOptions.lumi-image.output_format",
+            "values": [
+              "jpeg",
+              "png"
+            ]
+          },
+          {
+            "name": "background",
+            "label": "背景",
+            "type": "string",
+            "binding": "providerOptions.lumi-image.background"
+          },
+          {
+            "name": "watermark",
+            "label": "水印",
+            "type": "boolean",
+            "binding": "providerOptions.lumi-image.watermark"
+          },
+          {
+            "name": "seed",
+            "label": "随机种子",
+            "type": "integer",
+            "binding": "providerOptions.lumi-image.seed"
+          },
+          {
+            "name": "optimize_prompt",
+            "label": "提示词优化",
+            "type": "boolean",
+            "binding": "providerOptions.lumi-image.optimize_prompt",
+            "models": [
+              "seedream5.5"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

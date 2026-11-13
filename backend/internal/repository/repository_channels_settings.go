@@ -47,10 +47,13 @@ func (r *Repository) CatalogProviderChannelCounts() (map[string]int64, error) {
 	return result, nil
 }
 
-func (r *Repository) AdminSystemChannels(keyword string, status string, limit int, offset int) ([]model.ModelChannel, int64, error) {
+func (r *Repository) AdminSystemChannels(keyword string, status string, limit int, offset int, source ...model.ChannelCredentialSource) ([]model.ModelChannel, int64, error) {
 	var channels []model.ModelChannel
 	var total int64
 	query := r.db.Model(&model.ModelChannel{}).Where("scope = ?", model.ChannelScopeSystem)
+	if len(source) > 0 && source[0] != "" {
+		query = query.Where("credential_source = ?", source[0])
+	}
 	if value := strings.TrimSpace(keyword); value != "" {
 		pattern := "%" + strings.ToLower(value) + "%"
 		query = query.Where("lower(name) LIKE ? OR lower(base_url) LIKE ?", pattern, pattern)
@@ -94,6 +97,10 @@ func (r *Repository) AdminSystemChannel(id string) (*model.ModelChannel, error) 
 func (r *Repository) DeleteSystemChannel(id string) error {
 	now := time.Now()
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		var channel model.ModelChannel
+		if err := tx.Select("credential_source").Clauses(clause.Locking{Strength: "UPDATE"}).First(&channel, "id = ? AND scope = ?", id, model.ChannelScopeSystem).Error; err != nil {
+			return err
+		}
 		channelResult := tx.Model(&model.ModelChannel{}).
 			Where("id = ? AND scope = ?", id, model.ChannelScopeSystem).
 			Updates(map[string]any{"api_key": "", "secret_key": "", "enabled": false, "updated_at": now})
@@ -102,6 +109,11 @@ func (r *Repository) DeleteSystemChannel(id string) error {
 		}
 		if channelResult.RowsAffected != 1 {
 			return gorm.ErrRecordNotFound
+		}
+		if channel.CredentialSource == model.ChannelCredentialSourceUser {
+			if err := tx.Where("channel_id = ?", id).Delete(&model.UserChannelCredential{}).Error; err != nil {
+				return err
+			}
 		}
 		if err := tx.Model(&model.ChannelModel{}).Where("channel_id = ?", id).Updates(map[string]any{"enabled": false, "updated_at": now}).Error; err != nil {
 			return err

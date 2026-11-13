@@ -37,10 +37,6 @@ rule(either(model25,eq({'$len':ref('request.audios')},0),nonempty(ref('request.i
 rule(either(eq(duration,None),eq(duration,-1),both(op('gte',duration,4),op('lte',duration,when(model25,30,15)))),'视频时长必须为 4～15 秒（2.5 为 4～30 秒）或 -1')
 rule(either(eq(opt('priority'),None),both(op('gte',opt('priority'),0),op('lte',opt('priority'),9))),'优先级须为 0～9')
 for plural,n in [('images',9),('videos',3),('audios',3)]:rule(op('lte',{'$len':ref('request.'+plural)},n),'参考素材数量超出协议限制')
-frames={'$filter':{'from':ref('request.images'),'as':'image','where':op('in',ref('image.role'),['first_frame','last_frame'])}}
-# Filters use the SDK where expression.
-# Keep the SDK filter's where key.
-rule(either(eq({'$len':frames},0),eq(ratio,None),eq(ratio,'adaptive')),'首帧和首尾帧模式的画幅必须为 adaptive 或不传')
 rule(either({'$not':upgrade},both(model25,eq(resolution,'1080p'))),'样片升清仅支持 Seedance 2.5，分辨率必须为 1080p')
 rule(either(ne(opt('draft'),True),both(model25,either(eq(resolution,None),eq(resolution,'480p')))),'样片仅支持 Seedance 2.5 的 480p 输出')
 for k in ['callback_url','frames']:rule(eq(opt(k),None),k+' 当前不开放')

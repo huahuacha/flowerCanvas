@@ -589,7 +589,7 @@ export function bulkDisableAdminUsers(userIds: string[]) {
     return http.post<{ users: LocalUser[]; disabledCount: number }>("/admin/users/bulk-disable", { userIds });
 }
 
-export function listAdminChannels(params: AdminListParams = {}) {
+export function listAdminChannels(params: AdminListParams & { credentialSource?: ModelChannel["credentialSource"] } = {}) {
     return http.get<{ channels: ModelChannel[]; total: number; page: number; pageSize: number }>("/admin/channels", { params });
 }
 

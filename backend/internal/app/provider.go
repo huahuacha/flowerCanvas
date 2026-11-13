@@ -64,6 +64,8 @@ type providerTextMessage struct {
 }
 
 type providerConfig struct {
+	credentialSource      model.ChannelCredentialSource
+	proxyURL              string
 	mediaTransport        ReferenceMediaTransport // resolved from administrator settings; never deserialized from task input
 	ChannelID             string                  `json:"channelId"`
 	ChannelModelKey       string                  `json:"channelModelKey,omitempty"`
@@ -134,7 +136,7 @@ type imageResponse struct {
 	Msg   string                   `json:"msg"`
 }
 
-func (s *Service) processCanvasGenerationTask(ctx context.Context, userID string, taskProjectID string, taskType string, fallbackPrompt string, rawInput string) (map[string]interface{}, error) {
+func (s *Service) processCanvasGenerationTask(ctx context.Context, userID string, taskProjectID string, taskType string, fallbackPrompt string, rawInput string) (output map[string]interface{}, outputErr error) {
 	ctx = withProtocolRegistry(ctx, s.protocolRegistry())
 	var input canvasGenerationInput
 	if err := json.Unmarshal([]byte(rawInput), &input); err != nil {
@@ -145,6 +147,23 @@ func (s *Service) processCanvasGenerationTask(ctx context.Context, userID string
 	}
 	if input.Mode == "" && strings.HasPrefix(taskType, "video_") {
 		input.Mode = "video"
+	}
+	resuming := resumedProviderRequestID(ctx) != ""
+	var config providerConfig
+	if resuming {
+		var err error
+		if task, ok := ctx.Value(mediaExecutionTaskKey{}).(model.Task); ok {
+			config, err = s.resolveSubmittedTaskProviderConfig(&task, input.Config)
+		} else {
+			config, err = s.resolveProviderConfig(input.Config)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if config.credentialSource == model.ChannelCredentialSourceUser {
+			input.Config = config
+			return s.resumeFixedChannelTask(ctx, input)
+		}
 	}
 	promptTemplateOperation := metadataString(input.Metadata, "promptTemplateOperation")
 	// 视频节点的最终 Prompt 只取输入框内容，不能被分镜模板替换；图片和文本仍沿用模板能力。
@@ -165,11 +184,26 @@ func (s *Service) processCanvasGenerationTask(ctx context.Context, userID string
 		return nil, err
 	}
 	input.Prompt = resolved
-	config, err := s.resolveProviderConfig(input.Config)
-	if err != nil {
-		return nil, err
+	if !resuming {
+		config, err = s.resolveProviderConfigForUser(userID, input.Config)
+		if err != nil {
+			return nil, providerNotSubmittedError{err}
+		}
+		if err := s.saveTaskSubmissionCredential(ctx, userID, config); err != nil {
+			return nil, providerNotSubmittedError{err}
+		}
 	}
+	ctx = withFixedProviderCredential(ctx, config)
 	input.Config = config
+	if config.credentialSource == model.ChannelCredentialSourceUser && input.Mode == "text" {
+		defer func() {
+			for _, field := range []string{"text", "reasoning", "toolCalls", "reasoningBlocks"} {
+				if value, exists := output[field]; exists {
+					output[field] = redactFixedTextValue(value, config.APIKey)
+				}
+			}
+		}()
+	}
 	if input.Mode == "text" && input.Config.CapabilityConfig != nil && input.Config.CapabilityConfig.Text != nil {
 		// The same capability contract drives provider output limits, billing
 		// estimates and Agent context budgeting. Never silently fall back to a
@@ -189,9 +223,19 @@ func (s *Service) processCanvasGenerationTask(ctx context.Context, userID string
 			reasoningPublisher := newCloudAgentStreamPublisher(s, userID, taskExecutionID(ctx), "reasoning_delta")
 			input.OnReasoningDelta = reasoningPublisher.Publish
 			defer reasoningPublisher.Close()
+			if config.credentialSource == model.ChannelCredentialSourceUser {
+				publish, flush := redactFixedTextDeltas(reasoningPublisher.Publish, config.APIKey)
+				input.OnReasoningDelta = publish
+				defer flush()
+			}
 		}
 		input.OnTextDelta = textPublisher.Publish
 		defer textPublisher.Close()
+		if config.credentialSource == model.ChannelCredentialSourceUser {
+			publish, flush := redactFixedTextDeltas(textPublisher.Publish, config.APIKey)
+			input.OnTextDelta = publish
+			defer flush()
+		}
 	}
 	if isWorkflowProviderInterface(input.Config.InterfaceType) {
 		if err := s.RequireWorkflowPluginForInterface(input.Config.InterfaceType); err != nil {
@@ -346,6 +390,10 @@ func providerPrefersMediaURLs(interfaceType string, input canvasGenerationInput)
 }
 
 func (s *Service) resolveProviderConfig(config providerConfig) (providerConfig, error) {
+	return s.resolveProviderConfigForUser("", config)
+}
+
+func (s *Service) resolveProviderConfigForUser(userID string, config providerConfig) (providerConfig, error) {
 	headers, err := NormalizeOutboundHeaders(config.Headers)
 	if err != nil {
 		return providerConfig{}, err
@@ -431,6 +479,18 @@ func (s *Service) resolveProviderConfig(config providerConfig) (providerConfig, 
 	config.BaseURL = channel.BaseURL
 	config.APIKey = channel.APIKey
 	config.SecretKey = channel.SecretKey
+	config.proxyURL = channel.ProxyURL
+	config.credentialSource = channel.CredentialSource
+	if channel.CredentialSource == model.ChannelCredentialSourceUser {
+		if userID == "" {
+			return providerConfig{}, Forbidden("固定渠道需要任务所属用户的身份")
+		}
+		config.APIKey, err = s.fixedChannelAPIKey(userID, channel)
+		if err != nil {
+			return providerConfig{}, err
+		}
+		config.SecretKey = ""
+	}
 	config.Headers, err = ParseOutboundHeadersJSON(channel.HeadersJSON)
 	if err != nil {
 		return providerConfig{}, err

@@ -352,7 +352,7 @@ func (s *Service) queryFailedVideoTask(ctx context.Context, task *model.Task, cl
 	if err := json.Unmarshal([]byte(decryptedInput), &input); err != nil {
 		return nil, fmt.Errorf("任务输入解析失败：%w", err)
 	}
-	config, err := s.resolveProviderConfig(input.Config)
+	config, err := s.resolveSubmittedTaskProviderConfig(task, input.Config)
 	if err != nil {
 		return nil, err
 	}
@@ -384,7 +384,7 @@ func (s *Service) queryFailedVideoTask(ctx context.Context, task *model.Task, cl
 	// failed/refunded。保留请求值用于审计，但把执行生命周期交给恢复租约控制。
 	recoveryCtx, cancelRecovery := providerTaskRecoveryContext(ctx)
 	defer cancelRecovery()
-	queryCtx := withProviderAnalytics(recoveryCtx, s, *task)
+	queryCtx := withFixedProviderCredential(withProviderAnalytics(recoveryCtx, s, *task), config)
 	var result map[string]interface{}
 	var providerStatus string
 	result, providerStatus, err = queryProtocolAdapterVideoTask(queryCtx, input, adapter, providerRequestID)

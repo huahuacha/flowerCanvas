@@ -76,6 +76,7 @@ export function ChannelModelEditor({
     const tiersWithOwnUpstream = priceTiers.filter((tier) => tier.providerModelKey?.trim());
     const modelUpstream = normalizeUpstreamModelKey(providerModelKey || modelKey);
     const busy = saving || testing;
+    const usesMemberKey = channel.credentialSource === "user";
 
     const requestClose = () => {
         if (busyRef.current) return;
@@ -171,7 +172,7 @@ export function ChannelModelEditor({
     };
 
     const testModel = async () => {
-        if (busyRef.current) return;
+        if (busyRef.current || usesMemberKey) return;
         const values = await validateEditor(["modelKey", "providerModelKey", "capability", "protocol", "capabilityConfig"]);
         if (!values) return;
         const upstreamModel = values.providerModelKey?.trim() || values.modelKey.trim();
@@ -234,10 +235,11 @@ export function ChannelModelEditor({
                         </div>
                     </div>
                     <div className="admin-model-editor-footer-primary">
+                        {usesMemberKey && <small className="text-muted-foreground">测试需要专用凭据</small>}
                         <Button
                             icon={<FlaskConical className="size-4" />}
                             loading={testing}
-                            disabled={saving || protocolLoading || Boolean(protocolError)}
+                            disabled={usesMemberKey || saving || protocolLoading || Boolean(protocolError)}
                             onClick={() => modal.confirm({ title: "测试模型连接？", content: "测试会向上游发送真实请求，可能产生供应商费用；不会保存当前修改。", okText: "开始测试", cancelText: "取消", onOk: testModel })}
                         >
                             测试模型

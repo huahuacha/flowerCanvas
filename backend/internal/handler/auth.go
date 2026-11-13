@@ -326,7 +326,7 @@ func shortSystemProxyPath(rawPath string) (string, string, bool) {
 // as a channel request when a business route returns 404.
 func isReservedAPIPathPrefix(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "admin", "agent", "ai", "announcements", "banner-announcements", "assets", "auth", "canvas-projects", "channels", "diagnostics", "dramas", "features", "files", "model-catalog", "models", "oauth", "plugins", "projects", "public", "resources", "sessions", "settings", "skills", "style-profiles", "tasks", "timeline", "user-data", "voice-profiles", "wallet":
+	case "admin", "agent", "ai", "announcements", "banner-announcements", "assets", "auth", "canvas-projects", "channels", "company", "diagnostics", "dramas", "features", "files", "fixed-channels", "model-catalog", "models", "oauth", "plugins", "projects", "public", "resources", "sessions", "settings", "skills", "style-profiles", "tasks", "timeline", "user-data", "voice-profiles", "wallet":
 		return true
 	default:
 		return false
@@ -339,6 +339,10 @@ func proxySystemRequest(c *gin.Context, svc *service.Service, user *model.User, 
 
 func proxySystemRequestPath(c *gin.Context, svc *service.Service, user *model.User, channel *model.ModelChannel, providerPath string) {
 	startedAt := time.Now()
+	if channel.CredentialSource == model.ChannelCredentialSourceUser {
+		failService(c, service.Forbidden("固定渠道仅支持后端生成任务"))
+		return
+	}
 	// 分组只能使用绑定的系统渠道；中转入口与任务准入同样失败关闭。
 	if err := svc.RequireUserChannelAccess(user, channel.ID); err != nil {
 		failService(c, err)

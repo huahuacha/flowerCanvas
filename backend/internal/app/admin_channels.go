@@ -57,7 +57,10 @@ func (s *Service) AdminSystemChannelPage(actor *model.User, query AdminListQuery
 		return nil, err
 	}
 	page, limit := normalizeAdminPage(query.Page, query.Limit)
-	channels, total, err := s.repo.AdminSystemChannels(query.Keyword, query.Status, limit, (page-1)*limit)
+	if query.CredentialSource != "" && query.CredentialSource != model.ChannelCredentialSourcePlatform && query.CredentialSource != model.ChannelCredentialSourceUser {
+		return nil, BadAuthRequest("渠道凭据来源无效")
+	}
+	channels, total, err := s.repo.AdminSystemChannels(query.Keyword, query.Status, limit, (page-1)*limit, query.CredentialSource)
 	if err != nil {
 		return nil, err
 	}
@@ -229,6 +232,9 @@ func (s *Service) UpdateSystemChannel(actor *model.User, id string, req ChannelR
 	channel, err := s.repo.AdminSystemChannel(id)
 	if err != nil {
 		return nil, err
+	}
+	if req.CredentialSource != "" && req.CredentialSource != channelCredentialSource(*channel) {
+		return nil, BadAuthRequest("请新建渠道以使用不同的凭据来源")
 	}
 	if err := s.decryptSystemChannelSecrets(channel); err != nil {
 		return nil, err

@@ -77,6 +77,9 @@ func (w *taskLifecycleCoordinator) retryTask(userID string, id string) (*model.T
 	if err := s.prepareLogicalTaskRetry(task, billingInput); err != nil {
 		return nil, err
 	}
+	if err := s.requireFixedTaskCredential(userID, billingInput); err != nil {
+		return nil, err
+	}
 	if err := s.requireCustomChannelsForTaskInput(billingInput); err != nil {
 		return nil, err
 	}

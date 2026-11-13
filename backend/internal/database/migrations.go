@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 93
+const CurrentSchemaVersion int64 = 94
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -336,6 +336,27 @@ var schemaMigrations = []migration{
 		}
 		return nil
 	}},
+	{version: 94, name: "companies_and_fixed_channels", checksum: "sha256:companies-and-fixed-channels-v94-20261112", apply: migrateCompaniesAndFixedChannels},
+}
+
+func migrateCompaniesAndFixedChannels(tx *gorm.DB) error {
+	if err := tx.AutoMigrate(&model.Company{}, &model.CompanyMember{}, &model.UserChannelCredential{}); err != nil {
+		return err
+	}
+	for _, column := range []struct {
+		table any
+		field string
+	}{
+		{&model.ModelChannel{}, "CredentialSource"},
+		{&model.RouteAttempt{}, "SubmissionCredentialCipher"},
+	} {
+		if tx.Migrator().HasTable(column.table) && !tx.Migrator().HasColumn(column.table, column.field) {
+			if err := tx.Migrator().AddColumn(column.table, column.field); err != nil {
+				return fmt.Errorf("公司固定渠道迁移新增 %s: %w", column.field, err)
+			}
+		}
+	}
+	return nil
 }
 
 // migrateReferenceVideoCostPrice 为价格档成本和账单成本快照增加带参考视频的成本价。

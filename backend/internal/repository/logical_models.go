@@ -248,7 +248,23 @@ func (r *Repository) SaveLogicalModelRoute(item *model.LogicalModelRoute) error 
 func (r *Repository) CreateRouteAttempt(item *model.RouteAttempt) error {
 	return r.db.Create(item).Error
 }
-func (r *Repository) SaveRouteAttempt(item *model.RouteAttempt) error { return r.db.Save(item).Error }
+func (r *Repository) SaveRouteAttempt(item *model.RouteAttempt) error {
+	return r.db.Omit("SubmissionCredentialCipher").Save(item).Error
+}
+
+func (r *Repository) SaveRouteAttemptSubmissionCredential(id, channelID, cipher string) error {
+	result := r.db.Model(&model.RouteAttempt{}).
+		Where("id = ? AND dispatch_state = ? AND COALESCE(submission_credential_cipher, '') = ''", id, "submission_unknown").
+		Where("COALESCE(channel_id, '') = '' OR channel_id = ?", channelID).
+		Updates(map[string]any{"channel_id": channelID, "submission_credential_cipher": cipher})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrCreationConflict
+	}
+	return nil
+}
 
 func (r *Repository) MarkRouteAttemptDispatching(id string) error {
 	result := r.db.Model(&model.RouteAttempt{}).Where("id = ? AND dispatch_state = ?", id, "not_sent").

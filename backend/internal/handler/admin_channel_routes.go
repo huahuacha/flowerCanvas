@@ -4,6 +4,7 @@ package handler
 
 import (
 	"net/http"
+	"yingce/backend/internal/model"
 
 	"yingce/backend/internal/service"
 
@@ -22,7 +23,7 @@ func registerAdminChannelRoutes(r *gin.RouterGroup, svc *service.Service) {
 			fail(c, http.StatusBadRequest, err)
 			return
 		}
-		channels, err := svc.AdminSystemChannelPage(user, service.AdminListQuery{Keyword: c.Query("keyword"), Status: c.Query("status"), Page: page, Limit: limit})
+		channels, err := svc.AdminSystemChannelPage(user, service.AdminListQuery{Keyword: c.Query("keyword"), Status: c.Query("status"), CredentialSource: model.ChannelCredentialSource(c.Query("credentialSource")), Page: page, Limit: limit})
 		if err != nil {
 			failService(c, err)
 			return

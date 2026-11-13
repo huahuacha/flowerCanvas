@@ -5,6 +5,15 @@ description: 影策后端核心持久化表与状态边界
 
 # 后端数据库
 
+## 公司成员与固定渠道（Schema 94）
+
+版本 94 `companies_and_fixed_channels` 建立公司成员关系和固定渠道凭据。存量用户按原角色登录，存量渠道默认使用平台凭据。
+
+- `companies` 保存公司身份和名称。`company_members` 按用户唯一关联公司，记录公司管理员或员工身份。成员仍使用普通用户的全站角色，账号状态来自 `users`。
+- `user_channel_credentials` 以用户和渠道为联合主键，保存加密后的个人 Key。`model_channels.credential_source` 区分 `platform` 和 `user`。
+- `route_attempts.submission_credential_cipher` 保存固定渠道提交时的加密凭据，供已提交任务查询和恢复。任务接口不返回该字段。
+- 公司积分分配沿用 `credit_accounts` 和 `credit_ledger_entries`，在同一事务内登记等额的 `company_transfer_out` 与 `company_transfer_in` 流水。公司员工开户时创建零余额账户。
+
 ## 邮件发送记录与消费日报订阅（Schema 91）
 
 版本 91 `email_logs_and_notifications` 新增两张表，只建表不改旧数据：

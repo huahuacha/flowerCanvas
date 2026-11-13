@@ -151,6 +151,9 @@ func (s *Service) fetchAdminChannelModelCatalog(ctx context.Context, actor *mode
 	if err != nil {
 		return nil, err
 	}
+	if channel.CredentialSource == model.ChannelCredentialSourceUser {
+		return nil, BadAuthRequest("固定渠道需要专用测试凭据，请手工添加模型")
+	}
 	headers, err := ParseOutboundHeadersJSON(channel.HeadersJSON)
 	if err != nil {
 		return nil, err

@@ -2,8 +2,11 @@ package app
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
+
+	"gorm.io/gorm"
 
 	"yingce/backend/internal/kernel"
 	"yingce/backend/internal/model"
@@ -60,7 +63,11 @@ func (h platformHost) ChannelConcurrencyLimit(channelID string) (int, error) {
 	if h.svc == nil {
 		return 0, nil
 	}
-	channel, err := h.svc.repo.SystemChannel(channelID)
+	// Already submitted jobs can be polled after a channel is disabled or removed.
+	channel, err := h.svc.repo.AdminSystemChannel(channelID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, nil
+	}
 	if err != nil {
 		return 0, err
 	}

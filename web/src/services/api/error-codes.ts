@@ -6,6 +6,7 @@ import { DEFAULT_LOCALE } from "@/i18n/locales";
  * 页面应按 reason / code 分支，不要解析 msg。
  */
 export const API_ERROR_REASONS = [
+    "FIXED_CHANNEL_CREDENTIAL_REQUIRED",
     "invalid_argument",
     "unauthorized",
     "forbidden",
@@ -41,6 +42,7 @@ const LOCALIZED_REASONS = new Set<string>(["unauthorized", "forbidden", "not_fou
 
 /** 返回面向用户的错误文案：中文界面保留后端原文，其他语言对明确的 reason 使用本地化文案。 */
 export function localizedApiErrorMessage(reason: string | undefined, fallback: string): string {
+    if (reason === "FIXED_CHANNEL_CREDENTIAL_REQUIRED") return translate("company.fixedChannels.required");
     if (!reason || currentLocale() === DEFAULT_LOCALE || !LOCALIZED_REASONS.has(reason)) return fallback;
     return translate(`errors.reason.${reason}`);
 }

@@ -21,6 +21,9 @@ func (s *Service) TestAdminChannelModel(ctx context.Context, actor *model.User, 
 	if err != nil {
 		return nil, err
 	}
+	if channel.CredentialSource == model.ChannelCredentialSourceUser {
+		return nil, BadAuthRequest("固定渠道需要专用测试凭据")
+	}
 	modelKey, providerModelKey, capability, protocol, err := s.normalizeChannelModelContract(channel, req)
 	if err != nil {
 		return nil, err

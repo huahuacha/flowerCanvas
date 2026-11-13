@@ -43,7 +43,6 @@ func TestLumiVideoModes(t *testing.T) {
 		{"audio20", GenerationRequest{Model: "seedance-2.0", Audios: []MediaReference{{URL: "https://example.com/a.mp3"}}}, true},
 		{"empty", GenerationRequest{Model: "seedance-2.5"}, true},
 		{"upgrade", GenerationRequest{Model: "seedance-2.5", ProviderOptions: map[string]map[string]any{"lumi-ark-video": {"draft_task_id": "task_own_sample", "resolution": "1080p"}}}, false},
-		{"firstFrameBadRatio", GenerationRequest{Model: "seedance-2.5", AspectRatio: "16:9", Images: []MediaReference{{URL: "https://example.com/a.png", Role: "first_frame"}}}, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -62,6 +61,30 @@ func TestLumiVideoModes(t *testing.T) {
 				if len(b["content"].([]any)) != 1 {
 					t.Fatal("upgrade content")
 				}
+			}
+		})
+	}
+}
+
+func TestLumiKeyframeRatioPassthrough(t *testing.T) {
+	a := officialPackageAdapter(t, "lumi-ark-video.yingce-plugin", "lumi-ark-video")
+	for _, ratio := range []string{"16:9", "adaptive", ""} {
+		t.Run("ratio="+ratio, func(t *testing.T) {
+			r := GenerationRequest{
+				Model: "seedance-2.5", AspectRatio: ratio,
+				Images: []MediaReference{
+					{URL: "https://example.com/first.png", Role: "first_frame"},
+					{URL: "https://example.com/last.png", Role: "last_frame"},
+				},
+				Extra: map[string]any{"idempotencyKey": "keyframe-order"},
+			}
+			spec, err := a.BuildCreate(context.Background(), RequestContext{Request: r})
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := manifestTestBody(t, spec)
+			if got, ok := body["ratio"]; ok != (ratio != "") || (ok && got != ratio) {
+				t.Fatalf("ratio = %v (present: %t), want %q", got, ok, ratio)
 			}
 		})
 	}

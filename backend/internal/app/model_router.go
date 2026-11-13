@@ -136,9 +136,9 @@ func (s *Service) loadRouteCatalog() (*routeCatalogSnapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	enabledSystemChannels := make(map[string]bool, len(systemChannels))
+	enabledSystemChannels := make(map[string]model.ModelChannel, len(systemChannels))
 	for _, channel := range systemChannels {
-		enabledSystemChannels[channel.ID] = true
+		enabledSystemChannels[channel.ID] = channel
 	}
 	for _, item := range items {
 		graph := graphs[item.ID]
@@ -158,7 +158,8 @@ func (s *Service) loadRouteCatalog() (*routeCatalogSnapshot, error) {
 		cached := cachedLogicalModel{Model: item, Revision: *graph.Revision, ProductSpec: productSpec, Defaults: map[string]any{}}
 		for _, route := range graph.Routes {
 			channelModel, ok := channelModelByID[route.ChannelModelID]
-			if !ok || !channelModel.Enabled || !enabledSystemChannels[channelModel.ChannelID] {
+			channel, enabled := enabledSystemChannels[channelModel.ChannelID]
+			if !ok || !channelModel.Enabled || !enabled {
 				continue
 			}
 			if item.PricePolicy == "unified" && item.BillingMode == "token" && !supportsTokenBilling(item.Capability, channelModel.Protocol) {
@@ -172,7 +173,7 @@ func (s *Service) loadRouteCatalog() (*routeCatalogSnapshot, error) {
 				log.Printf("logical route omitted from catalog route_id=%s channel_model_id=%s: invalid capability: %v", route.ID, channelModel.ID, specErr)
 				continue
 			}
-			cached.Routes = append(cached.Routes, cachedLogicalRoute{Route: route, CapabilitySpec: capabilitySpec, ChannelModel: channelModel})
+			cached.Routes = append(cached.Routes, cachedLogicalRoute{Route: route, CapabilitySpec: capabilitySpec, ChannelModel: channelModel, CredentialSource: channel.CredentialSource})
 		}
 		productSpec = capabilitySpecWithRoutePresets(productSpec, enabledLogicalRouteSpecs(cached.Routes))
 		defaults, defaultsErr := decodeLogicalDefaults(graph.Revision.DefaultOptionsJSON, productSpec)
@@ -232,7 +233,7 @@ func (s *Service) eligibleLogicalRoutes(access *userGroupAccess, routes []cached
 		if !route.Route.Enabled || route.Route.Weight <= 0 || tried[route.Route.ID] || s.logicalRouteBlocked(route) {
 			continue
 		}
-		if access != nil && !access.allowsChannel(route.ChannelModel.ChannelID) {
+		if !s.logicalRouteVisible(access, route) {
 			continue
 		}
 		if match := MatchCapability(route.CapabilitySpec, intent); !match.Matched {

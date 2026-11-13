@@ -85,6 +85,7 @@ export type ModelChannel = {
     // 仅平台目录使用：将已保存的旧 SKU 选择重定向到当前模型家族。
     modelAliases?: Record<string, string>;
     scope?: "system" | "user";
+    credentialSource?: "platform" | "user";
     enabled?: boolean;
     hasApiKey?: boolean;
     hasSecretKey?: boolean;
@@ -526,6 +527,7 @@ export function createModelChannel(channel?: Partial<ModelChannel>): ModelChanne
         interfaceType,
         models: uniqueRawModels(channel?.models || []),
         scope: channel?.scope === "system" ? "system" : "user",
+        credentialSource: channel?.credentialSource,
         enabled: channel?.enabled !== false,
         hasApiKey: channel?.hasApiKey,
         hasSecretKey: channel?.hasSecretKey,

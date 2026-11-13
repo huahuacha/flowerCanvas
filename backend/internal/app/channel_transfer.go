@@ -32,14 +32,15 @@ type SystemChannelExport struct {
 }
 
 type SystemChannelExportChannel struct {
-	MediaTransport    *ReferenceMediaTransport   `json:"mediaTransport,omitempty"`
-	Name              string                     `json:"name"`
-	BaseURL           string                     `json:"baseUrl"`
-	SortOrder         int                        `json:"sortOrder"`
-	Enabled           bool                       `json:"enabled"`
-	ConcurrencyLimit  int                        `json:"concurrencyLimit"`
-	CatalogProviderID string                     `json:"catalogProviderId,omitempty"`
-	Models            []SystemChannelExportModel `json:"models"`
+	CredentialSource  model.ChannelCredentialSource `json:"credentialSource,omitempty"`
+	MediaTransport    *ReferenceMediaTransport      `json:"mediaTransport,omitempty"`
+	Name              string                        `json:"name"`
+	BaseURL           string                        `json:"baseUrl"`
+	SortOrder         int                           `json:"sortOrder"`
+	Enabled           bool                          `json:"enabled"`
+	ConcurrencyLimit  int                           `json:"concurrencyLimit"`
+	CatalogProviderID string                        `json:"catalogProviderId,omitempty"`
+	Models            []SystemChannelExportModel    `json:"models"`
 }
 
 type SystemChannelExportModel struct {
@@ -83,8 +84,9 @@ func (s *Service) ExportSystemChannels(actor *model.User, ids []string) (*System
 			return nil, err
 		}
 		exported := SystemChannelExportChannel{
-			MediaTransport: transport,
-			Name:           channel.Name, BaseURL: channel.BaseURL, SortOrder: channel.SortOrder, Enabled: channel.Enabled,
+			CredentialSource: channelCredentialSource(channel),
+			MediaTransport:   transport,
+			Name:             channel.Name, BaseURL: channel.BaseURL, SortOrder: channel.SortOrder, Enabled: channel.Enabled,
 			ConcurrencyLimit: channel.ConcurrencyLimit, CatalogProviderID: channel.CatalogProviderID,
 			Models: make([]SystemChannelExportModel, 0, len(items)),
 		}
@@ -209,6 +211,7 @@ func (s *Service) importSystemChannel(actor *model.User, imported SystemChannelE
 	sortOrder := imported.SortOrder
 	useGlobal := imported.ConcurrencyLimit <= 0
 	req := ChannelRequest{MediaTransport: imported.MediaTransport, Name: strings.TrimSpace(imported.Name), BaseURL: imported.BaseURL, SortOrder: &sortOrder, UseGlobalConcurrency: &useGlobal}
+	req.CredentialSource = imported.CredentialSource
 	if !useGlobal {
 		limit := imported.ConcurrencyLimit
 		req.ConcurrencyLimit = &limit

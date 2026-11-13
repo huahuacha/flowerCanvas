@@ -146,7 +146,7 @@ func (s *Service) publicSystemChannelCatalog(access *userGroupAccess, intent *Mo
 
 	result := make([]PublicChannelCatalog, 0, len(channels))
 	for _, channel := range channels {
-		if !channel.Enabled || !access.allowsChannel(channel.ID) {
+		if !channel.Enabled || s.requireChannelEligibility(access, channel) != nil {
 			continue
 		}
 

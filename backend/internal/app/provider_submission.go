@@ -17,6 +17,7 @@ func withProviderSubmissionKey(ctx context.Context, attempt *model.RouteAttempt)
 	// Stable for this persisted attempt across worker/process recovery; an
 	// explicitly new user retry or a safely rejected route gets a new attempt.
 	key := uuid.NewSHA1(uuid.NameSpaceOID, []byte(attempt.TaskID+":"+attempt.ID)).String()
+	ctx = context.WithValue(ctx, providerRouteAttemptContextKey{}, attempt)
 	return context.WithValue(ctx, providerSubmissionKeyContext{}, key)
 }
 

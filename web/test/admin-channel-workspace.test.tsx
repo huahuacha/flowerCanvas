@@ -61,8 +61,9 @@ test("channel navigation is persistent, keyed and responsive with all server pag
     expect(page).toContain("新增渠道");
     expect(page).toContain("key={selectedChannel.id}");
     expect(page).toContain("aria-pressed={selectedChannel?.id === channel.id}");
-    expect(page).toContain("listAdminChannels({ page: 1, pageSize: 100 })");
-    expect(page).toContain("listAdminChannels({ page, pageSize: 100 })");
+    expect(page).toContain('const credentialSource = fixedOnly ? "user" : undefined');
+    expect(page).toContain("listAdminChannels({ page: 1, pageSize: 100, credentialSource })");
+    expect(page).toContain("listAdminChannels({ page, pageSize: 100, credentialSource })");
     expect(page).not.toContain("setManagingChannel");
     expect(css).toContain("grid-template-columns: minmax(0, 1fr) minmax(0, 4fr)");
     expect(css).toContain("@media (max-width: 900px)");

@@ -25,6 +25,7 @@ const EmailSettingsPage = lazyAdminPage(() => import("@/pages/admin/admin-route-
 const FeatureAvailabilityPage = lazyAdminPage(() => import("@/pages/admin/admin-route-pages").then((module) => ({ default: module.FeatureAvailabilityPage })));
 const AgentLessonsPage = lazyAdminPage(() => import("@/pages/admin/admin-route-pages").then((module) => ({ default: module.AgentLessonsPage })));
 const ChannelsPage = lazyAdminPage(() => import("@/pages/admin/channels/channels-page"));
+const CompaniesPage = lazyAdminPage(() => import("@/pages/admin/companies/companies-page"));
 const LogicalModelsPage = lazyAdminPage(() => import("@/pages/admin/logical-models/logical-models-page"));
 const AdminPluginsPage = lazyAdminPage(() => import("@/pages/admin/plugins/plugins-page"));
 const SkillCurationPage = lazyAdminPage(() => import("@/pages/admin/skill-curation-page"));
@@ -236,11 +237,13 @@ export const router = createBrowserRouter([
                 children: [
                     { index: true, element: <AnalyticsPage /> },
                     { path: "users", element: <UsersPage /> },
+                    { path: "companies", element: <CompaniesPage /> },
                     { path: "user-groups", element: <UserGroupsPage /> },
                     { path: "login-logs", element: <LoginLogsPage /> },
                     { path: "email-logs", element: <EmailLogsPage /> },
                     { path: "feedbacks", element: <AdminFeedbacksPage /> },
-                    { path: "channels", element: <ChannelsPage /> },
+                    { path: "channels", element: <ChannelsPage key="channels" /> },
+                    { path: "fixed-channels", element: <ChannelsPage key="fixed-channels" /> },
                     // 关闭前台模型只影响用户端模型来源；后台仍可进入，便于开启前先配置。
                     { path: "models", element: <LogicalModelsPage /> },
                     { path: "ecommerce", element: <Navigate to="/admin/ecommerce/agent" replace /> },

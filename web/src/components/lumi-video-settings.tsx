@@ -112,7 +112,7 @@ export function LumiVideoSettings({ value, onChange }: { value?: string; onChang
                     {field("平台素材项目标识（可选）", <Input aria-label="平台素材项目标识" value={String(options.project_name || "")} maxLength={64} onChange={(e) => update("project_name", e.target.value)} />)}
                 </>
             )}
-            <p className="text-xs opacity-70">首帧或首尾帧请选择 adaptive。本版要求明确时长、画幅与分辨率，以保证报价与实际请求一致。</p>
+            <p className="text-xs opacity-70">画幅按所选值提交，由上游校验。本版要求明确时长、画幅与分辨率，以保证报价与实际请求一致。</p>
             {error && (
                 <p role="alert" className="text-xs text-red-500">
                     {error}
