@@ -41,6 +41,8 @@ export type LocalUser = {
 };
 
 export type AdminUser = LocalUser & {
+    companyName?: string;
+    companyRole?: "admin" | "employee";
     availableMicrocredits: number;
     reservedMicrocredits: number;
     /** 仅用户列表返回：累计充值到账积分与累计已结算消耗。 */
@@ -547,7 +549,7 @@ export async function logout() {
     return result;
 }
 
-export type AdminListParams = { keyword?: string; status?: string; role?: string; group?: string; page?: number; pageSize?: number };
+export type AdminListParams = { keyword?: string; status?: string; role?: string; group?: string; page?: number; pageSize?: number; excludeCompanyEmployees?: boolean };
 
 export function listAdminUsers(params: AdminListParams = {}) {
     return http.get<{ users: AdminUser[]; total: number; page: number; pageSize: number }>("/admin/users", { params });

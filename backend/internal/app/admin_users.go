@@ -29,7 +29,7 @@ func (s *Service) AdminUsers(actor *model.User, query AdminListQuery) (*AdminUse
 		return nil, err
 	}
 	page, limit := normalizeAdminPage(query.Page, query.Limit)
-	users, total, err := s.repo.AdminUsers(query.Keyword, model.UserRole(query.Type), model.UserStatus(query.Status), strings.ToLower(strings.TrimSpace(query.Group)), limit, (page-1)*limit)
+	users, total, err := s.repo.AdminUsers(query.Keyword, model.UserRole(query.Type), model.UserStatus(query.Status), strings.ToLower(strings.TrimSpace(query.Group)), query.ExcludeCompanyEmployees, limit, (page-1)*limit)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +53,11 @@ func (s *Service) AdminUsers(actor *model.User, query AdminListQuery) (*AdminUse
 	for _, user := range users {
 		account := accountByUserID[user.ID]
 		total := totals[user.ID]
-		result = append(result, AdminUser{User: user, AvailableMicrocredits: account.AvailableMicrocredits, ReservedMicrocredits: account.ReservedMicrocredits, RechargedMicrocredits: total.RechargedMicrocredits, ConsumedMicrocredits: total.ConsumedMicrocredits})
+		result = append(result, AdminUser{
+			User: user.User, CompanyName: user.CompanyName, CompanyRole: user.CompanyRole,
+			AvailableMicrocredits: account.AvailableMicrocredits, ReservedMicrocredits: account.ReservedMicrocredits,
+			RechargedMicrocredits: total.RechargedMicrocredits, ConsumedMicrocredits: total.ConsumedMicrocredits,
+		})
 	}
 	return &AdminUserPage{Users: result, Total: total, Page: page, Limit: limit}, nil
 }

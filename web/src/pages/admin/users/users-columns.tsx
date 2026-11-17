@@ -94,11 +94,13 @@ export function createUserColumns({
             key: "role",
             title: "角色",
             dataIndex: "role",
-            width: 130,
+            width: 160,
             align: "center",
             render: (role, user) => (
                 <span className="inline-flex flex-wrap items-center justify-center gap-1">
-                    <AdminStatusBadge label={role === "admin" ? "管理员" : "普通用户"} tone={role === "admin" ? "info" : "neutral"} />
+                    {role === "admin" && <AdminStatusBadge label="平台管理员" tone="info" />}
+                    {user.companyRole === "admin" && <AdminStatusBadge label={`公司管理员 · ${user.companyName}`} tone="info" />}
+                    {role !== "admin" && user.companyRole !== "admin" && <AdminStatusBadge label="普通用户" tone="neutral" />}
                     {user.isPromoter ? <AdminStatusBadge label="推广人" tone="success" /> : null}
                 </span>
             ),

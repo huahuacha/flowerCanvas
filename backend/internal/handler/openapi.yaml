@@ -36,12 +36,24 @@ tags:
   - name: pose-library
     description: 站点姿势库：浏览、选用，管理员导入与图片同步
 paths:
+  /admin/users:
+    get:
+      tags: [admin]
+      summary: 分页查询平台用户和公司身份
+      parameters:
+        - name: excludeCompanyEmployees
+          in: query
+          schema: {type: boolean, default: false}
+          description: 分页前排除公司员工，平台管理员保留
+      responses:
+        "200": {description: 用户列表及可选公司身份 companyName 和 companyRole}
+        "403": {$ref: "#/components/responses/Error"}
   /admin/companies:
     get:
       tags: [admin]
-      summary: 列出公司及管理员
+      summary: 列出公司、管理员及成员身份
       responses:
-        "200": {description: 公司列表}
+        "200": {description: 公司列表，包含各公司的成员名单 members}
         "403": {$ref: "#/components/responses/Error"}
     post:
       tags: [admin]

@@ -1,12 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { Alert, App, Button, Form, Input } from "antd";
+import { Alert, App, Button, Form, Input, Table } from "antd";
 import { Plus } from "lucide-react";
 import { useRef, useState } from "react";
 
-import { createAdminCompany, listAdminCompanies, type AdminCompany } from "@/services/api/company";
+import { createAdminCompany, listAdminCompanies, type AdminCompany, type CompanyMemberBrief } from "@/services/api/company";
 import { useUserStore } from "@/stores/use-user-store";
 import { AdminPageFrame } from "../components/admin-shell";
-import { AdminDataTable, AdminTableEmpty } from "../components/admin-ui";
+import { AdminDataTable, AdminStatusBadge, AdminTableEmpty } from "../components/admin-ui";
 import { AdminModal } from "../ui/overlays";
 
 type CompanyFields = { name: string; adminUsername: string };
@@ -59,6 +59,30 @@ export default function CompaniesPage() {
                         dataSource: companies.data?.companies ?? [],
                         scroll: { x: 620 },
                         pagination: { pageSize: 20, hideOnSinglePage: true },
+                        expandable: {
+                            columnTitle: "成员名单",
+                            rowExpandable: (company) => company.memberCount > 0,
+                            expandIcon: ({ expanded, onExpand, record, expandable }) =>
+                                expandable ? (
+                                    <Button type="link" size="small" aria-expanded={expanded} aria-label={`${expanded ? "收起" : "展开"}${record.name}的成员`} onClick={(event) => onExpand(record, event)}>
+                                        {expanded ? "收起成员" : "展开成员"}
+                                    </Button>
+                                ) : null,
+                            expandedRowRender: (company) => (
+                                <Table<CompanyMemberBrief>
+                                    rowKey="userId"
+                                    size="small"
+                                    dataSource={company.members}
+                                    pagination={false}
+                                    columns={[
+                                        { title: "姓名", key: "name", render: (_, member) => member.displayName || member.username },
+                                        { title: "用户名", dataIndex: "username" },
+                                        { title: "公司身份", key: "role", render: (_, member) => <AdminStatusBadge label={member.role === "admin" ? "公司管理员" : "员工"} tone={member.role === "admin" ? "info" : "neutral"} /> },
+                                        { title: "状态", key: "status", render: (_, member) => (member.status === "disabled" ? "已停用" : "已启用") },
+                                    ]}
+                                />
+                            ),
+                        },
                         columns: [
                             { title: "公司", dataIndex: "name" },
                             {
@@ -75,7 +99,7 @@ export default function CompaniesPage() {
                                         </div>
                                     )),
                             },
-                            { title: "成员数", dataIndex: "memberCount", align: "right" },
+                            { title: "成员构成", key: "memberCount", render: (_, company) => `${company.adminCount} 位管理员 · ${company.memberCount - company.adminCount} 位员工` },
                             { title: "开通时间", dataIndex: "createdAt", render: (date: string) => new Date(date).toLocaleString() },
                         ],
                     }}

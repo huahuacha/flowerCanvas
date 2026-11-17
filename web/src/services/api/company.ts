@@ -34,13 +34,15 @@ export type CreateCompanyMemberInput = {
 };
 
 type CompanyCreditAccount = Pick<CompanyMember, "userId" | "availableMicrocredits" | "reservedMicrocredits">;
+export type CompanyMemberBrief = Pick<CompanyMember, "userId" | "username" | "displayName" | "role" | "status">;
 
 export type AdminCompany = {
     id: string;
     name: string;
     memberCount: number;
     adminCount: number;
-    admins: Pick<CompanyMember, "userId" | "username" | "displayName" | "role" | "status">[];
+    admins: CompanyMemberBrief[];
+    members: CompanyMemberBrief[];
     createdAt: string;
 };
 

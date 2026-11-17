@@ -71,6 +71,7 @@ type AdminCompanyView struct {
 	MemberCount int                  `json:"memberCount"`
 	AdminCount  int                  `json:"adminCount"`
 	Admins      []CompanyMemberBrief `json:"admins"`
+	Members     []CompanyMemberBrief `json:"members"`
 	CreatedAt   time.Time            `json:"createdAt"`
 }
 
@@ -271,7 +272,7 @@ func (s *Service) AdminCompanies(actor *model.User) ([]AdminCompanyView, error) 
 	for _, company := range companies {
 		companyIDs = append(companyIDs, company.ID)
 		viewIndex[company.ID] = len(views)
-		views = append(views, AdminCompanyView{ID: company.ID, Name: company.Name, CreatedAt: company.CreatedAt, Admins: []CompanyMemberBrief{}})
+		views = append(views, AdminCompanyView{ID: company.ID, Name: company.Name, CreatedAt: company.CreatedAt, Admins: []CompanyMemberBrief{}, Members: []CompanyMemberBrief{}})
 	}
 	members, err := s.repo.CompanyMembers(companyIDs)
 	if err != nil {
@@ -279,10 +280,12 @@ func (s *Service) AdminCompanies(actor *model.User) ([]AdminCompanyView, error) 
 	}
 	for _, member := range members {
 		view := &views[viewIndex[member.CompanyID]]
+		brief := CompanyMemberBrief{UserID: member.UserID, Username: member.Username, DisplayName: member.DisplayName, Role: member.Role, Status: member.Status}
+		view.Members = append(view.Members, brief)
 		view.MemberCount++
 		if member.Role == model.CompanyMemberRoleAdmin {
 			view.AdminCount++
-			view.Admins = append(view.Admins, CompanyMemberBrief{UserID: member.UserID, Username: member.Username, DisplayName: member.DisplayName, Role: member.Role, Status: member.Status})
+			view.Admins = append(view.Admins, brief)
 		}
 	}
 	return views, nil
@@ -353,9 +356,10 @@ func (s *Service) CreateAdminCompany(actor *model.User, req CreateCompanyRequest
 	if err != nil {
 		return nil, err
 	}
+	admins := []CompanyMemberBrief{{UserID: admin.ID, Username: admin.Username, DisplayName: admin.DisplayName, Role: member.Role, Status: admin.Status}}
 	return &AdminCompanyView{
 		ID: company.ID, Name: company.Name, MemberCount: 1, AdminCount: 1, CreatedAt: company.CreatedAt,
-		Admins: []CompanyMemberBrief{{UserID: admin.ID, Username: admin.Username, DisplayName: admin.DisplayName, Role: member.Role, Status: admin.Status}},
+		Admins: admins, Members: admins,
 	}, nil
 }
 

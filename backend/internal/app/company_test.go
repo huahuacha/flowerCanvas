@@ -37,6 +37,8 @@ func TestCompanyOnboardingIsolatedAndStartsAtZero(t *testing.T) {
 		&model.AdminAuditEvent{},
 		&model.CreditAccount{},
 		&model.CreditLedgerEntry{},
+		&model.PaymentOrder{},
+		&model.BillingOrder{},
 		&model.ModelChannel{},
 		&model.UserGroup{},
 		&model.UserGroupChannel{},
@@ -104,6 +106,31 @@ func TestCompanyOnboardingIsolatedAndStartsAtZero(t *testing.T) {
 		t.Fatal(err)
 	}
 	var account model.CreditAccount
+	adminUsers, err := s.AdminUsers(platform, AdminListQuery{ExcludeCompanyEmployees: true, Type: "user", Limit: 1})
+	if err != nil || adminUsers.Total != 2 || len(adminUsers.Users) != 1 {
+		t.Fatalf("filtered users = %+v, err = %v", adminUsers, err)
+	}
+	listed := adminUsers.Users[0]
+	if listed.CompanyRole != model.CompanyMemberRoleAdmin || listed.CompanyName != listed.Username {
+		t.Fatalf("expected a company administrator with company name, got %q / %q", listed.CompanyRole, listed.CompanyName)
+	}
+	allUsers, err := s.AdminUsers(platform, AdminListQuery{Keyword: employee.Username})
+	if err != nil || allUsers.Total != 1 || len(allUsers.Users) != 1 || allUsers.Users[0].ID != employee.UserID {
+		t.Fatalf("unfiltered employee search = %+v, err = %v", allUsers, err)
+	}
+	companies, err := s.AdminCompanies(platform)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, company := range companies {
+		if company.Name != adminA.Username {
+			continue
+		}
+		if len(company.Members) != 2 || company.Members[0].Role != model.CompanyMemberRoleAdmin || company.Members[1].UserID != employee.UserID ||
+			company.Members[1].Role != model.CompanyMemberRoleEmployee {
+			t.Fatalf("company member list = %+v", company.Members)
+		}
+	}
 	if err := db.First(&account, "user_id = ?", employee.UserID).Error; err != nil {
 		t.Fatalf("company onboarding must create the account: %v", err)
 	}

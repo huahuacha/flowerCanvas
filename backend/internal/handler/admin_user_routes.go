@@ -24,7 +24,10 @@ func registerAdminUserRoutes(r *gin.RouterGroup, svc *service.Service) {
 			fail(c, http.StatusBadRequest, err)
 			return
 		}
-		users, err := svc.AdminUsers(user, service.AdminListQuery{Keyword: c.Query("keyword"), Type: c.Query("role"), Status: c.Query("status"), Group: c.Query("group"), Page: page, Limit: limit})
+		users, err := svc.AdminUsers(user, service.AdminListQuery{
+			Keyword: c.Query("keyword"), Type: c.Query("role"), Status: c.Query("status"), Group: c.Query("group"),
+			ExcludeCompanyEmployees: c.Query("excludeCompanyEmployees") == "true", Page: page, Limit: limit,
+		})
 		if err != nil {
 			failService(c, err)
 			return
