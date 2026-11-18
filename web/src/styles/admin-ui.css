@@ -2080,8 +2080,8 @@
     line-height: 0;
 }
 
-.admin-shell .admin-table-surface .ant-table-tbody > tr:hover > td,
-.admin-modal-root .admin-table-surface .ant-table-tbody > tr:hover > td {
+.admin-shell .admin-table-surface .ant-table-tbody > tr:not(.ant-table-expanded-row):hover > td,
+.admin-modal-root .admin-table-surface .ant-table-tbody > tr:not(.ant-table-expanded-row):hover > td {
     background: var(--admin-row-hover) !important;
 }
 

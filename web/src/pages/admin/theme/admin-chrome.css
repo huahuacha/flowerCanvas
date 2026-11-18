@@ -594,7 +594,7 @@
     font-variant-numeric: tabular-nums;
 }
 
-[data-admin-root] .admin-table-surface .ant-table-tbody > tr:hover > td {
+[data-admin-root] .admin-table-surface .ant-table-tbody > tr:not(.ant-table-expanded-row):hover > td {
     background: var(--admin-row-hover) !important;
 }
 

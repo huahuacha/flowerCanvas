@@ -41,8 +41,10 @@ const (
 )
 
 const (
-	defaultAppearanceBrandName = "影策"
-	defaultAppearanceBrandSlug = "open-ai-canvas"
+	defaultAppearanceBrandName = "DreamCanvas"
+	defaultAppearanceBrandSlug = "dreamcanvas"
+	legacyAppearanceBrandName  = "影策"
+	legacyAppearanceBrandSlug  = "open-ai-canvas"
 	defaultAppearanceSkinID    = "classic"
 	defaultAppearanceLogoURL   = "/logo.svg"
 	defaultAppearanceVideoURL  = "https://boss-shjd.biliapi.net/updream/aniforge/video/video_bbcb00bd-650d-4249-9346-5cd21fd2484c_m1hc-u0-1pu13x-3v1s.mp4"
@@ -297,7 +299,7 @@ func (s *Service) ResetAppearance(actor *model.User) (*AdminAppearanceSetting, e
 		return nil, err
 	}
 	after := defaultAppearanceSetting()
-	if err := s.appendAdminAudit(actor, "appearance.reset", "system_setting", appearanceSettingKey, "恢复影策默认品牌标识", map[string]any{"before": before, "after": after}); err != nil {
+	if err := s.appendAdminAudit(actor, "appearance.reset", "system_setting", appearanceSettingKey, "恢复默认品牌标识", map[string]any{"before": before, "after": after}); err != nil {
 		return nil, err
 	}
 	return s.AdminAppearance(actor)
@@ -445,12 +447,15 @@ func (s *Service) readAppearance() (*model.SystemSetting, AppearanceSetting, err
 	}
 	value.SchemaVersion = appearanceSchemaVersion
 	value.BrandName = strings.TrimSpace(value.BrandName)
-	if value.BrandName == "" {
+	if value.BrandName == "" || value.BrandName == legacyAppearanceBrandName {
 		value.BrandName = defaultAppearanceBrandName
 	}
 	value.BrandSlug = strings.ToLower(strings.TrimSpace(value.BrandSlug))
-	if value.BrandSlug == "" {
+	if value.BrandSlug == "" || value.BrandSlug == legacyAppearanceBrandSlug {
 		value.BrandSlug = defaultAppearanceBrandSlug
+	}
+	if strings.TrimSpace(value.Canvas.AgentName) == legacyAppearanceBrandName {
+		value.Canvas.AgentName = defaultAppearanceBrandName
 	}
 	value.AuthHeroTitle = normalizeAppearanceCopy(value.AuthHeroTitle)
 	if value.AuthHeroTitle == "" {
@@ -469,6 +474,17 @@ func (s *Service) readAppearance() (*model.SystemSetting, AppearanceSetting, err
 	value.SEODescription = normalizeAppearanceCopy(value.SEODescription)
 	value.SEOKeywords = normalizeAppearanceSingleLine(value.SEOKeywords)
 	value.FooterCopyright = normalizeAppearanceSingleLine(value.FooterCopyright)
+	if value.SEOTitle == legacyAppearanceBrandName {
+		value.SEOTitle = ""
+	}
+	if value.SEODescription == legacyAppearanceBrandName+"，面向 AI 影视与短剧创作的工作台。" {
+		value.SEODescription = ""
+	}
+	if _, oldName, ok := strings.Cut(value.FooterCopyright, " "); ok && strings.HasPrefix(value.FooterCopyright, "© ") {
+		if year, suffix, ok := strings.Cut(oldName, " "); ok && len(year) == 4 && suffix == legacyAppearanceBrandName+". All rights reserved." {
+			value.FooterCopyright = ""
+		}
+	}
 	value.ICPFilingNumber = normalizeAppearanceSingleLine(value.ICPFilingNumber)
 	value.RedeemPurchaseURL = strings.TrimSpace(value.RedeemPurchaseURL)
 	return setting, value, nil
