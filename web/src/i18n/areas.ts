@@ -1,4 +1,4 @@
-// 按页面区域拆分的文案目录：每个区域在 messages/areas/<区域>/ 下维护六种语言，
+// 按页面区域拆分的文案目录：每个区域在 messages/areas/<区域>/ 下维护简体中文和英文，
 // 合并到同名顶级命名空间（例如 t("create.home.title")），区域之间互不覆盖。
 import { catalog as create } from "./messages/areas/create";
 import { catalog as library } from "./messages/areas/library";

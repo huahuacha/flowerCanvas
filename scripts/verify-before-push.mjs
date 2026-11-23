@@ -25,6 +25,7 @@ const BACKEND = path.join(ROOT, "backend");
 const LOG_DIR = path.join(ROOT, ".local", "cache", "verify");
 const TASK_TIMEOUT_MS = 25 * 60 * 1000;
 const isWindows = process.platform === "win32";
+const bun = process.versions.bun ? process.execPath : "bun";
 
 function runHidden(command, args, options) {
     return spawnSync(command, args, { ...options, windowsHide: true });
@@ -109,23 +110,49 @@ const tasks = [];
 const skipped = [];
 const notCovered = ["Payment plugin artifacts（需要 Docker 双架构构建，由 CI 检查）"];
 
+function addWebTasks(name, scripts, weight) {
+    if (!isWindows) {
+        tasks.push({ name, cwd: WEB, cmd: bun, args: ["run", scripts.at(-1)], weight });
+        return;
+    }
+
+    // Windows can fail to launch Bun's package-script shell. Read the same commands
+    // from package.json and run their entry points directly, in lifecycle order.
+    const packageScripts = JSON.parse(readFileSync(path.join(WEB, "package.json"), "utf8")).scripts;
+    const executables = {
+        bun: [bun],
+        tsc: ["node", "node_modules/typescript/bin/tsc"],
+        eslint: ["node", "node_modules/eslint/bin/eslint.js"],
+    };
+    const commands = scripts.flatMap((script) => packageScripts[script].split(/\s+&&\s+/));
+    let after;
+    for (const [index, command] of commands.entries()) {
+        const tokens = command.trim().split(/\s+/);
+        const [tool, ...args] = tokens;
+        if (!Object.hasOwn(executables, tool) || tokens.some((token) => !/^[\w./:-]+$/.test(token))) {
+            fail(`Windows 验证无法直接运行 package.json 命令：${command}`);
+        }
+        const [cmd, ...entry] = executables[tool];
+        const step = index === commands.length - 1 ? name : `${name}:准备${index + 1}`;
+        tasks.push({ name: step, cwd: WEB, cmd, args: [...entry, ...args], weight, after });
+        after = step;
+    }
+}
+
 if (wantWeb) {
     const leftovers = ["pnpm-lock.yaml", "package-lock.json", "yarn.lock"].filter((file) => existsSync(path.join(WEB, file)));
     if (leftovers.length) {
         console.error(`✗ web 只能使用 bun.lock，发现：${leftovers.join(", ")}`);
         process.exit(1);
     }
-    tasks.push(
-        { name: "web:format", cwd: WEB, cmd: "bun", args: ["scripts/check-changed-formatting.mjs"], env: { BASE_SHA: base, GITHUB_SHA: formatHead }, weight: 10 },
-        { name: "web:typecheck", cwd: WEB, cmd: "bun", args: ["run", "typecheck"], weight: 60 },
-        { name: "web:lint", cwd: WEB, cmd: "bun", args: ["run", "lint"], weight: 50 },
-        // bun run test 会先跑 pretest，与 CI 一致；直接 bun test 会跳过它。
-        { name: "web:test", cwd: WEB, cmd: "bun", args: ["run", "test"], weight: 120 },
-    );
+    tasks.push({ name: "web:format", cwd: WEB, cmd: bun, args: ["scripts/check-changed-formatting.mjs"], env: { BASE_SHA: base, GITHUB_SHA: formatHead }, weight: 10 });
+    addWebTasks("web:typecheck", ["typecheck"], 60);
+    addWebTasks("web:lint", ["lint"], 50);
+    addWebTasks("web:test", ["pretest", "test"], 120);
     // 预演台 E2E 启动 Vite 与真实 Chrome，耗时且对机器负载敏感：只在预演相关改动或 --all 时运行。
     const previsChanged = changed.some((file) => file.startsWith("web/") && /previs/i.test(file));
     if (options.skipE2e) skipped.push("web:e2e（--skip-e2e）");
-    else if (options.all || previsChanged) tasks.push({ name: "web:e2e", cwd: WEB, cmd: "bun", args: ["run", "test:previs:e2e"], weight: 90 });
+    else if (options.all || previsChanged) addWebTasks("web:e2e", ["test:previs:e2e"], 90);
     else skipped.push("web:e2e（没有预演台相关改动；--all 可强制运行）");
 } else skipped.push("Web 检查（没有 web/ 改动）");
 

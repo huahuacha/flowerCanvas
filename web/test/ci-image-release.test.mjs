@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -6,9 +6,18 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const scripts = fileURLToPath(new URL("../../.github/scripts/", import.meta.url));
+const bash = process.env.CANVAS_TEST_BASH || "bash";
 const temporaryDirectories = [];
 const sha = "a".repeat(40);
 const digest = "b".repeat(64);
+beforeAll(() => {
+    const result = spawnSync(bash, ["--version"], { encoding: "utf8", windowsHide: true });
+    if (result.status !== 0) {
+        const detail = result.error?.message || result.stderr?.trim() || result.stdout?.trim() || `exit status ${result.status}`;
+        throw new Error(`Image release tests require a working Bash. Set CANVAS_TEST_BASH to its executable or run in Linux. ${detail}`);
+    }
+});
+
 afterEach(() => {
     for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
@@ -29,7 +38,7 @@ function fixture(overrides = {}) {
     writeFileSync(output, "");
     const env = {
         ...process.env,
-        PATH: `${bin}:${process.env.PATH}`,
+        PATH: [bin, process.env.PATH].filter(Boolean).join(path.delimiter),
         GITHUB_OUTPUT: output,
         GITHUB_SHA: sha,
         GITHUB_REF: "refs/heads/main",
@@ -46,7 +55,12 @@ function fixture(overrides = {}) {
         ...overrides,
     };
     return {
-        run: (script, ...args) => spawnSync("bash", [path.join(scripts, script), ...args], { env, encoding: "utf8" }),
+        run: (script, ...args) => {
+            const result = spawnSync(bash, [path.join(scripts, script), ...args], { env, encoding: "utf8", windowsHide: true });
+            if (result.error) throw result.error;
+            if (result.signal) throw new Error(`${script} terminated by ${result.signal}`);
+            return result;
+        },
         output: () => readFileSync(output, "utf8"),
         call: () => (existsSync(env.MOCK_CALL) ? readFileSync(env.MOCK_CALL, "utf8") : ""),
     };

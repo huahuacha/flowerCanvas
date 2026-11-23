@@ -64,7 +64,7 @@
     color: var(--control-selected-fg);
 }
 
-/* 设置页：六种语言一屏看全，当前语言用选中态边框。 */
+/* 设置页的当前语言用选中态边框。 */
 .language-option-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(156px, 1fr));

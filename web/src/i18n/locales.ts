@@ -3,10 +3,6 @@
 export const SUPPORTED_LOCALES = [
     { code: "zh-CN", label: "简体中文", short: "中文", english: "Chinese (Simplified)" },
     { code: "en-US", label: "English", short: "EN", english: "English" },
-    { code: "fr-FR", label: "Français", short: "FR", english: "French" },
-    { code: "de-DE", label: "Deutsch", short: "DE", english: "German" },
-    { code: "ja-JP", label: "日本語", short: "日本語", english: "Japanese" },
-    { code: "ko-KR", label: "한국어", short: "한국어", english: "Korean" },
 ] as const;
 
 export type AppLocale = (typeof SUPPORTED_LOCALES)[number]["code"];
@@ -17,7 +13,7 @@ export function isAppLocale(value: unknown): value is AppLocale {
     return SUPPORTED_LOCALES.some((locale) => locale.code === value);
 }
 
-/** 把浏览器语言（如 en、ja-JP、zh-TW）映射到支持的语言；按语言主标签匹配，匹配不到返回 undefined。 */
+/** 把浏览器语言（如 en、en-GB、zh-TW）映射到支持的语言；按语言主标签匹配，匹配不到返回 undefined。 */
 export function matchAppLocale(value: string | undefined | null): AppLocale | undefined {
     const normalized = (value || "").trim().toLowerCase();
     if (!normalized) return undefined;

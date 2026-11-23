@@ -3,11 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { i18n } from "@/i18n";
 import { AREA_CATALOGS } from "@/i18n/areas";
 import { detectBrowserLocale, matchAppLocale, SUPPORTED_LOCALES } from "@/i18n/locales";
-import { deDE } from "@/i18n/messages/de-DE";
 import { enUS } from "@/i18n/messages/en-US";
-import { frFR } from "@/i18n/messages/fr-FR";
-import { jaJP } from "@/i18n/messages/ja-JP";
-import { koKR } from "@/i18n/messages/ko-KR";
 import { zhCN } from "@/i18n/messages/zh-CN";
 import { formatRelativeTime } from "@/lib/relative-time";
 import { localizedApiErrorMessage } from "@/services/api/error-codes";
@@ -24,17 +20,14 @@ afterEach(() => useLocaleStore.getState().setLocale("zh-CN"));
 
 describe("i18n catalogs", () => {
     const source = flatten(zhCN);
-    const catalogs = { "en-US": enUS, "fr-FR": frFR, "de-DE": deDE, "ja-JP": jaJP, "ko-KR": koKR };
 
-    test("every locale is registered and has the same keys and placeholders as zh-CN", () => {
-        expect(SUPPORTED_LOCALES.map((locale) => locale.code).sort()).toEqual(["de-DE", "en-US", "fr-FR", "ja-JP", "ko-KR", "zh-CN"]);
-        for (const [code, catalog] of Object.entries(catalogs)) {
-            const flat = flatten(catalog);
-            expect(Object.keys(flat).sort(), code).toEqual(Object.keys(source).sort());
-            for (const [key, text] of Object.entries(flat)) {
-                expect(text.trim().length, `${code} ${key}`).toBeGreaterThan(0);
-                expect(placeholders(text), `${code} ${key}`).toEqual(placeholders(source[key]));
-            }
+    test("only zh-CN and en-US are registered and they have matching keys and placeholders", () => {
+        expect(SUPPORTED_LOCALES.map((locale) => locale.code)).toEqual(["zh-CN", "en-US"]);
+        const english = flatten(enUS);
+        expect(Object.keys(english).sort()).toEqual(Object.keys(source).sort());
+        for (const [key, text] of Object.entries(english)) {
+            expect(text.trim().length, key).toBeGreaterThan(0);
+            expect(placeholders(text), key).toEqual(placeholders(source[key]));
         }
     });
 
@@ -58,20 +51,21 @@ describe("i18n catalogs", () => {
 
     test("browser languages map to supported locales", () => {
         expect(matchAppLocale("en")).toBe("en-US");
-        expect(matchAppLocale("ja-jp")).toBe("ja-JP");
+        expect(matchAppLocale("ja-jp")).toBeUndefined();
         expect(matchAppLocale("zh-TW")).toBe("zh-CN");
         expect(matchAppLocale("es-ES")).toBeUndefined();
-        expect(detectBrowserLocale(["es-ES", "de-AT"])).toBe("de-DE");
+        expect(detectBrowserLocale(["es-ES", "de-AT", "en-GB"])).toBe("en-US");
+        expect(detectBrowserLocale(["fr-FR", "ko-KR"])).toBe("zh-CN");
         expect(detectBrowserLocale(["pt-BR"])).toBe("zh-CN");
         expect(detectBrowserLocale(undefined)).toBe("zh-CN");
     });
 
     test("switching locale updates i18next and rejects unsupported values", () => {
-        useLocaleStore.getState().setLocale("ko-KR");
-        expect(i18n.language).toBe("ko-KR");
-        expect(i18n.t("nav.tools.canvas")).toBe("캔버스");
-        useLocaleStore.getState().setLocale("xx-XX" as never);
-        expect(useLocaleStore.getState().locale).toBe("ko-KR");
+        useLocaleStore.getState().setLocale("en-US");
+        expect(i18n.language).toBe("en-US");
+        expect(i18n.t("nav.tools.canvas")).toBe("Canvas");
+        useLocaleStore.getState().setLocale("ko-KR" as never);
+        expect(useLocaleStore.getState().locale).toBe("en-US");
     });
 });
 

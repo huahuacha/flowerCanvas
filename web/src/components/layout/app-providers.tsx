@@ -3,17 +3,9 @@ import { lazy, Suspense, useEffect, useLayoutEffect } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { ConfigProvider } from "antd";
 import type { Locale as AntdLocale } from "antd/es/locale";
-import deDE from "antd/locale/de_DE";
 import enUS from "antd/locale/en_US";
-import frFR from "antd/locale/fr_FR";
-import jaJP from "antd/locale/ja_JP";
-import koKR from "antd/locale/ko_KR";
 import zhCN from "antd/locale/zh_CN";
 import dayjs from "dayjs";
-import "dayjs/locale/de";
-import "dayjs/locale/fr";
-import "dayjs/locale/ja";
-import "dayjs/locale/ko";
 import "dayjs/locale/zh-cn";
 import { I18nextProvider, useTranslation } from "react-i18next";
 
@@ -33,8 +25,8 @@ import type { AppLocale } from "@/i18n/locales";
 import { useLocaleStore } from "@/stores/use-locale-store";
 
 // antd 组件内置文案与 dayjs 日期格式随界面语言切换。
-const ANTD_LOCALES: Record<AppLocale, AntdLocale> = { "zh-CN": zhCN, "en-US": enUS, "fr-FR": frFR, "de-DE": deDE, "ja-JP": jaJP, "ko-KR": koKR };
-const DAYJS_LOCALES: Record<AppLocale, string> = { "zh-CN": "zh-cn", "en-US": "en", "fr-FR": "fr", "de-DE": "de", "ja-JP": "ja", "ko-KR": "ko" };
+const ANTD_LOCALES: Record<AppLocale, AntdLocale> = { "zh-CN": zhCN, "en-US": enUS };
+const DAYJS_LOCALES: Record<AppLocale, string> = { "zh-CN": "zh-cn", "en-US": "en" };
 
 const ClientRootInit = lazy(() => import("@/components/layout/client-root-init").then((module) => ({ default: module.ClientRootInit })));
 

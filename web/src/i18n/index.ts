@@ -4,14 +4,10 @@ import { initReactI18next } from "react-i18next";
 import { useLocaleStore } from "@/stores/use-locale-store";
 import { AREA_CATALOGS } from "./areas";
 import { DEFAULT_LOCALE, SUPPORTED_LOCALES, type AppLocale } from "./locales";
-import { deDE } from "./messages/de-DE";
 import { enUS } from "./messages/en-US";
-import { frFR } from "./messages/fr-FR";
-import { jaJP } from "./messages/ja-JP";
-import { koKR } from "./messages/ko-KR";
 import { zhCN } from "./messages/zh-CN";
 
-const CORE_CATALOGS: Record<AppLocale, object> = { "zh-CN": zhCN, "en-US": enUS, "fr-FR": frFR, "de-DE": deDE, "ja-JP": jaJP, "ko-KR": koKR };
+const CORE_CATALOGS: Record<AppLocale, object> = { "zh-CN": zhCN, "en-US": enUS };
 
 /** 每种语言 = 公共目录 + 各页面区域目录（区域名作为顶级命名空间）。 */
 function buildResources(): Resource {

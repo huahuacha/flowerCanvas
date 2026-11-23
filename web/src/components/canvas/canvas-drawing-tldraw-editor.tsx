@@ -12,7 +12,7 @@ import { useUserStore } from "@/stores/use-user-store";
 const SINGLE_PAGE_OPTIONS = { maxPages: 1 } as const;
 const DRAWING_RENDER_MAX_DIMENSION = 2048;
 const DRAWING_RENDER_PADDING = 24;
-const TLDRAW_LOCALES: Record<AppLocale, string> = { "zh-CN": "zh-cn", "en-US": "en", "fr-FR": "fr", "de-DE": "de", "ja-JP": "ja", "ko-KR": "ko-kr" };
+const TLDRAW_LOCALES: Record<AppLocale, string> = { "zh-CN": "zh-cn", "en-US": "en" };
 
 export const CanvasDrawingTldrawEditor = forwardRef<CanvasDrawingEditorHandle, CanvasDrawingEditorProps>(function CanvasDrawingTldrawEditor({ snapshot, colorScheme, onReady }, ref) {
     const tldrawLicenseKey = useUserStore((state) => state.drawingEngine.tldrawLicenseKey);
@@ -23,28 +23,32 @@ export const CanvasDrawingTldrawEditor = forwardRef<CanvasDrawingEditorHandle, C
     }, [snapshot]);
     const editorRef = useRef<Editor | null>(null);
 
-    useImperativeHandle(ref, () => ({
-        createSave: async () => {
-            const editor = editorRef.current;
-            if (!editor) throw new Error(translate("canvasA.drawing.tldrawNotReady"));
-            const shapeIds = [...editor.getCurrentPageShapeIds()];
-            if (!shapeIds.length) return { snapshot: getSnapshot(store), preview: null, render: null };
-            const bounds = editor.getShapesPageBounds(shapeIds);
-            if (!bounds) throw new Error(translate("canvasA.drawing.tldrawBoundsFailed"));
-            const sourceDimension = Math.max(bounds.width, bounds.height) + DRAWING_RENDER_PADDING * 2;
-            const scale = Math.min(4, DRAWING_RENDER_MAX_DIMENSION / Math.max(1, sourceDimension));
-            const image = await editor.toImage(shapeIds, { format: "png", background: true, padding: DRAWING_RENDER_PADDING, scale, pixelRatio: 1, darkMode: false });
-            const render = {
-                blob: image.blob,
-                pageId: editor.getCurrentPageId(),
-                width: image.width,
-                height: image.height,
-                mimeType: image.blob.type || "image/png",
-                background: "white" as const,
-            };
-            return { snapshot: getSnapshot(store), preview: image.blob, render };
-        },
-    }), [store]);
+    useImperativeHandle(
+        ref,
+        () => ({
+            createSave: async () => {
+                const editor = editorRef.current;
+                if (!editor) throw new Error(translate("canvasA.drawing.tldrawNotReady"));
+                const shapeIds = [...editor.getCurrentPageShapeIds()];
+                if (!shapeIds.length) return { snapshot: getSnapshot(store), preview: null, render: null };
+                const bounds = editor.getShapesPageBounds(shapeIds);
+                if (!bounds) throw new Error(translate("canvasA.drawing.tldrawBoundsFailed"));
+                const sourceDimension = Math.max(bounds.width, bounds.height) + DRAWING_RENDER_PADDING * 2;
+                const scale = Math.min(4, DRAWING_RENDER_MAX_DIMENSION / Math.max(1, sourceDimension));
+                const image = await editor.toImage(shapeIds, { format: "png", background: true, padding: DRAWING_RENDER_PADDING, scale, pixelRatio: 1, darkMode: false });
+                const render = {
+                    blob: image.blob,
+                    pageId: editor.getCurrentPageId(),
+                    width: image.width,
+                    height: image.height,
+                    mimeType: image.blob.type || "image/png",
+                    background: "white" as const,
+                };
+                return { snapshot: getSnapshot(store), preview: image.blob, render };
+            },
+        }),
+        [store],
+    );
 
     return (
         <Tldraw
