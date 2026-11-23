@@ -100,7 +100,9 @@ export function createUserColumns({
                 <span className="inline-flex flex-wrap items-center justify-center gap-1">
                     {role === "admin" && <AdminStatusBadge label="平台管理员" tone="info" />}
                     {user.companyRole === "admin" && <AdminStatusBadge label={`公司管理员 · ${user.companyName}`} tone="info" />}
-                    {role !== "admin" && user.companyRole !== "admin" && <AdminStatusBadge label="普通用户" tone="neutral" />}
+                    {user.companyRole === "employee" && <AdminStatusBadge label={`公司员工 · ${user.companyName}`} tone="neutral" />}
+                    {role !== "admin" && !user.companyRole && <AdminStatusBadge label="普通用户" tone="neutral" />}
+                    {user.companyStatus === "disabled" && <AdminStatusBadge label="公司已停用" tone="neutral" />}
                     {user.isPromoter ? <AdminStatusBadge label="推广人" tone="success" /> : null}
                 </span>
             ),

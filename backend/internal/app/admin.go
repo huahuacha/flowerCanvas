@@ -42,6 +42,8 @@ type BulkDisableUsersResult struct {
 }
 
 type AdminListQuery struct {
+	CompanyID               string
+	CompanyRole             string
 	ExcludeCompanyEmployees bool
 	CredentialSource        model.ChannelCredentialSource
 	Keyword                 string
@@ -63,6 +65,7 @@ type AdminUser struct {
 	model.User
 	CompanyName           string                  `json:"companyName,omitempty"`
 	CompanyRole           model.CompanyMemberRole `json:"companyRole,omitempty"`
+	CompanyStatus         model.UserStatus        `json:"companyStatus,omitempty"`
 	AvailableMicrocredits int64                   `json:"availableMicrocredits"`
 	ReservedMicrocredits  int64                   `json:"reservedMicrocredits"`
 	// 仅列表接口填充：累计充值到账积分与累计已结算消耗。

@@ -44,6 +44,16 @@ func (r *Repository) CreateAuthSessionForUser(expected *model.User, session *mod
 		if current.Status != model.UserStatusActive || current.PasswordHash != expected.PasswordHash || current.Email != expected.Email {
 			return ErrProfileAuthorization
 		}
+		repo := New(tx)
+		member, err := repo.CompanyMemberByUserID(current.ID)
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if member != nil {
+			if err := repo.requireActiveCompany(member.CompanyID); err != nil {
+				return err
+			}
+		}
 		if err := tx.Create(session).Error; err != nil {
 			return err
 		}

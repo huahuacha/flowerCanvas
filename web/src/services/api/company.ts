@@ -39,6 +39,7 @@ export type CompanyMemberBrief = Pick<CompanyMember, "userId" | "username" | "di
 export type AdminCompany = {
     id: string;
     name: string;
+    status?: "active" | "disabled";
     memberCount: number;
     adminCount: number;
     admins: CompanyMemberBrief[];
@@ -53,4 +54,7 @@ export const disableCompanyMember = (userId: string) => http.post<{ member: Comp
 export const allocateCompanyCredits = (userId: string, input: { amountMicrocredits: number; requestId: string }) =>
     http.post<{ actorAccount: CompanyCreditAccount; targetAccount: CompanyCreditAccount; replayed: boolean }>(`/company/members/${encodeURIComponent(userId)}/credits`, input);
 export const listAdminCompanies = (signal?: AbortSignal) => http.get<{ companies: AdminCompany[] }>("/admin/companies", { signal });
-export const createAdminCompany = (input: { name: string; adminUsername: string }) => http.post<{ company: AdminCompany }>("/admin/companies", input);
+export const createAdminCompany = (input: { name: string; admin: CreateCompanyMemberInput & { userGroup: string } }) => http.post<{ company: AdminCompany }>("/admin/companies", input);
+export const updateAdminCompanyStatus = (companyId: string, status: NonNullable<AdminCompany["status"]>) => http.patch<{ company: AdminCompany }>(`/admin/companies/${encodeURIComponent(companyId)}`, { status });
+export const addAdminCompanyAdmin = (companyId: string, usernameOrEmail: string) => http.post<{ member: CompanyMemberBrief }>(`/admin/companies/${encodeURIComponent(companyId)}/admins`, { usernameOrEmail });
+export const demoteAdminCompanyAdmin = (companyId: string, userId: string) => http.delete<{ member: CompanyMemberBrief }>(`/admin/companies/${encodeURIComponent(companyId)}/admins/${encodeURIComponent(userId)}`);

@@ -33,7 +33,12 @@ func (r *Repository) AppendAdminAudit(event *model.AdminAuditEvent) error {
 func (r *Repository) BulkDisableUsers(actorID string, userIDs []string, events []model.AdminAuditEvent, now time.Time) ([]model.User, error) {
 	var users []model.User
 	err := r.db.Transaction(func(tx *gorm.DB) error {
-		query := tx.Where("id IN ?", userIDs)
+		if r.Dialect() == "sqlite" {
+			if err := lockProfileUser(tx, actorID); err != nil {
+				return err
+			}
+		}
+		query := tx.Where("id IN ?", userIDs).Order("id")
 		if r.Dialect() == "postgres" {
 			query = query.Clauses(clause.Locking{Strength: "UPDATE"})
 		}
@@ -56,6 +61,9 @@ func (r *Repository) BulkDisableUsers(actorID string, userIDs []string, events [
 		}
 		if remainingAdmins == 0 {
 			return ErrBulkLastActiveAdmin
+		}
+		if err := New(tx).CheckCompanyUserChanges(userIDs, "", model.UserStatusDisabled); err != nil {
+			return err
 		}
 		if err := tx.Delete(&model.AuthSession{}, "user_id IN ?", userIDs).Error; err != nil {
 			return err

@@ -66,6 +66,7 @@ type CompanyCreditAllocationRequest struct {
 }
 
 type AdminCompanyView struct {
+	Status      model.UserStatus     `json:"status"`
 	ID          string               `json:"id"`
 	Name        string               `json:"name"`
 	MemberCount int                  `json:"memberCount"`
@@ -76,15 +77,23 @@ type AdminCompanyView struct {
 }
 
 type CreateCompanyRequest struct {
-	Name          string `json:"name"`
-	AdminUserID   string `json:"adminUserId"`
-	AdminUsername string `json:"adminUsername"`
+	Name  string                    `json:"name"`
+	Admin CreateCompanyAdminRequest `json:"admin"`
+}
+
+type CreateCompanyAdminRequest struct {
+	CreateCompanyMemberRequest
+	UserGroup string `json:"userGroup"`
 }
 
 func companyWriteError(err error) error {
 	switch {
 	case errors.Is(err, repository.ErrCompanyAdminRequired), errors.Is(err, repository.ErrCompanyEmployeeRequired):
 		return Forbidden(err.Error())
+	case errors.Is(err, repository.ErrCompanyDisabled):
+		return Forbidden(err.Error())
+	case errors.Is(err, repository.ErrLastCompanyAdmin), errors.Is(err, repository.ErrCompanyPlatformRole):
+		return NewAppError(http.StatusConflict, err.Error())
 	case errors.Is(err, repository.ErrCompanyTransferConflict):
 		return NewAppError(http.StatusConflict, err.Error())
 	case errors.Is(err, repository.ErrInsufficientCredits):
@@ -114,6 +123,9 @@ func (s *Service) CompanyMembership(actor *model.User) (*CompanyMembershipView, 
 	company, err := s.repo.CompanyByID(member.CompanyID)
 	if err != nil {
 		return nil, err
+	}
+	if company.Status != model.UserStatusActive {
+		return nil, Forbidden("公司已停用")
 	}
 	view.Company = &CompanyIdentity{
 		CompanyID: company.ID, CompanyName: company.Name, Role: member.Role, IsAdmin: member.Role == model.CompanyMemberRoleAdmin,
@@ -266,15 +278,19 @@ func (s *Service) AdminCompanies(actor *model.User) ([]AdminCompanyView, error) 
 	if err != nil {
 		return nil, err
 	}
+	return adminCompanyViews(s.repo, companies)
+}
+
+func adminCompanyViews(repo *repository.Repository, companies []model.Company) ([]AdminCompanyView, error) {
 	views := make([]AdminCompanyView, 0, len(companies))
 	companyIDs := make([]string, 0, len(companies))
 	viewIndex := make(map[string]int, len(companies))
 	for _, company := range companies {
 		companyIDs = append(companyIDs, company.ID)
 		viewIndex[company.ID] = len(views)
-		views = append(views, AdminCompanyView{ID: company.ID, Name: company.Name, CreatedAt: company.CreatedAt, Admins: []CompanyMemberBrief{}, Members: []CompanyMemberBrief{}})
+		views = append(views, AdminCompanyView{ID: company.ID, Name: company.Name, Status: company.Status, CreatedAt: company.CreatedAt, Admins: []CompanyMemberBrief{}, Members: []CompanyMemberBrief{}})
 	}
-	members, err := s.repo.CompanyMembers(companyIDs)
+	members, err := repo.CompanyMembers(companyIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -299,17 +315,37 @@ func (s *Service) CreateAdminCompany(actor *model.User, req CreateCompanyRequest
 	if name == "" || utf8.RuneCountInString(name) > 120 {
 		return nil, BadAuthRequest("请填写不超过 120 个字符的公司名称")
 	}
-	admin, err := s.findInitialCompanyAdmin(req)
+	username, email := normalizeUsername(req.Admin.Username), normalizeEmail(req.Admin.Email)
+	if err := validateUsername(username); err != nil {
+		return nil, err
+	}
+	if err := validatePassword(req.Admin.Password); err != nil {
+		return nil, err
+	}
+	if email != "" {
+		if err := validateEmail(email); err != nil {
+			return nil, err
+		}
+	}
+	group, err := s.requireExistingUserGroup(req.Admin.UserGroup)
 	if err != nil {
 		return nil, err
 	}
-	company := &model.Company{ID: newID(), Name: name}
+	hash, err := hashPassword(req.Admin.Password)
+	if err != nil {
+		return nil, err
+	}
+	admin := &model.User{ID: newID(), Username: username, Email: email, DisplayName: normalizeDisplayName(req.Admin.DisplayName, username), UserGroup: group, PasswordHash: hash, Role: model.UserRoleUser, Status: model.UserStatusActive}
+	company := &model.Company{ID: newID(), Name: name, Status: model.UserStatusActive}
 	member := &model.CompanyMember{ID: newID(), CompanyID: company.ID, UserID: admin.ID, Role: model.CompanyMemberRoleAdmin}
 	event, err := newAdminAuditEvent(actor, "company.create", "company", company.ID, "平台开通公司并绑定首位公司管理员", map[string]string{"adminUserId": admin.ID})
 	if err != nil {
 		return nil, err
 	}
 	err = s.repo.Transaction(func(repo *repository.Repository) error {
+		if err := repo.LockCompanyAccountEmail(email); err != nil {
+			return err
+		}
 		currentActor, err := repo.LockUserForUpdate(actor.ID)
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return Forbidden("需要管理员权限")
@@ -319,18 +355,6 @@ func (s *Service) CreateAdminCompany(actor *model.User, req CreateCompanyRequest
 		}
 		if currentActor.Status != model.UserStatusActive || currentActor.Role != model.UserRoleAdmin {
 			return Forbidden("需要管理员权限")
-		}
-		admin, err = repo.LockUserForUpdate(member.UserID)
-		if err != nil {
-			return err
-		}
-		if admin.Role != model.UserRoleUser || admin.Status != model.UserStatusActive {
-			return BadAuthRequest("首位公司管理员必须是启用的全站普通用户")
-		}
-		if _, err := repo.CompanyMemberByUserID(admin.ID); err == nil {
-			return BadAuthRequest("该账号已归属公司")
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
 		}
 		groups := []string{model.DefaultUserGroupCode}
 		if adminGroup := normalizeUserGroupCode(admin.UserGroup); adminGroup != model.DefaultUserGroupCode {
@@ -348,45 +372,14 @@ func (s *Service) CreateAdminCompany(actor *model.User, req CreateCompanyRequest
 		if err := repo.Create(company); err != nil {
 			return err
 		}
-		if err := repo.Create(member); err != nil {
-			return err
-		}
-		return repo.Create(event)
+		return repo.InsertCompanyAccount(admin, member, event)
 	})
 	if err != nil {
-		return nil, err
+		return nil, companyWriteError(err)
 	}
 	admins := []CompanyMemberBrief{{UserID: admin.ID, Username: admin.Username, DisplayName: admin.DisplayName, Role: member.Role, Status: admin.Status}}
 	return &AdminCompanyView{
-		ID: company.ID, Name: company.Name, MemberCount: 1, AdminCount: 1, CreatedAt: company.CreatedAt,
+		ID: company.ID, Name: company.Name, Status: company.Status, MemberCount: 1, AdminCount: 1, CreatedAt: company.CreatedAt,
 		Admins: admins, Members: admins,
 	}, nil
-}
-
-func (s *Service) findInitialCompanyAdmin(req CreateCompanyRequest) (*model.User, error) {
-	id, account := strings.TrimSpace(req.AdminUserID), strings.TrimSpace(req.AdminUsername)
-	var admin *model.User
-	var err error
-	switch {
-	case id != "" && account != "":
-		return nil, BadAuthRequest("请仅指定一个首位公司管理员账号")
-	case id != "":
-		admin, err = s.repo.User(id)
-	case strings.Contains(account, "@"):
-		admin, err = s.repo.UserByEmail(normalizeEmail(account))
-	case account != "":
-		admin, err = s.repo.UserByUsername(normalizeUsername(account))
-	default:
-		return nil, BadAuthRequest("请指定首位公司管理员的账号")
-	}
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, BadAuthRequest("指定的公司管理员账号不存在")
-	}
-	if err != nil {
-		return nil, err
-	}
-	if admin.Role != model.UserRoleUser || admin.Status != model.UserStatusActive {
-		return nil, BadAuthRequest("首位公司管理员必须是启用的全站普通用户")
-	}
-	return admin, nil
 }

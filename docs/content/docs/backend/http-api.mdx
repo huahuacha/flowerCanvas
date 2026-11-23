@@ -7,9 +7,15 @@ description: 信封、错误码与 OpenAPI
 
 ## 公司成员与固定渠道
 
-平台管理员使用 `GET /api/admin/companies` 和 `POST /api/admin/companies` 查看及开通公司。已登录用户通过 `GET /api/company/membership` 查看自己的公司身份。公司管理员通过 `GET/POST /api/company/members` 管理员工，通过 `POST /api/company/members/:id/disable` 停用员工并撤销会话。
+平台管理员通过 `GET /api/admin/companies` 查看公司，通过 `POST /api/admin/companies` 提交 `{ name, admin: { username, password, email?, displayName?, userGroup? } }` 开通公司。公司和首位管理员账号在同一事务内创建，初始积分为零。
 
-公司列表的 `members` 包含用户名、显示名、公司角色和账号状态，供平台后台展开名单。`GET /api/admin/users` 为公司成员返回 `companyName` 和 `companyRole`。平台用户管理页传 `excludeCompanyEmployees=true`，分页前排除公司员工并保留平台管理员。
+平台管理员通过 `POST /api/admin/companies/:id/admins` 提交 `{ usernameOrEmail }`，将本公司已启用的员工或尚无公司归属的已启用普通账号设为公司管理员。通过 `DELETE /api/admin/companies/:id/admins/:userId` 将管理员改为员工。启用中的公司至少保留一位启用的管理员，该限制覆盖单个停用、批量停用和管理员降级。
+
+`PATCH /api/admin/companies/:id` 接收 `{ status: "active" | "disabled" }`。停用公司时撤销全体成员会话并阻止登录，恢复后原本启用的账号可重新登录。公司列表同时返回公司状态和各成员的账号状态。
+
+`GET /api/admin/users` 支持 `companyId` 和 `companyRole`（`admin`、`employee`、`none`），在计数和分页前筛选。用户列表和详情为公司成员返回 `companyName`、`companyRole` 和 `companyStatus`。
+
+已登录用户通过 `GET /api/company/membership` 查看自己的公司身份。公司管理员通过 `GET/POST /api/company/members` 管理本公司员工，通过 `POST /api/company/members/:id/disable` 停用员工并撤销会话。
 
 `POST /api/company/members/:id/credits` 从当前公司管理员的可用积分分配给本公司的启用员工。入参包含正整数 `amountMicrocredits` 和幂等键 `requestId`。同一笔分配重试时沿用相同的键、员工和金额。
 

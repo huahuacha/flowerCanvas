@@ -17,20 +17,23 @@ func TestRegisterCanvasAPIExposesOpenAPIAndProjects(t *testing.T) {
 	RegisterCanvasAPI(router.Group("/api"), &service.Service{})
 
 	wanted := map[string]bool{
-		"GET /api/openapi.yaml":                  false,
-		"GET /api/workbench/tools":               false,
-		"GET /api/workbench/tasks":               false,
-		"POST /api/workbench/tasks":              false,
-		"GET /api/projects":                      false,
-		"POST /api/tasks":                        false,
-		"POST /api/tasks/:id/recover-media":      false,
-		"GET /api/resources":                     false,
-		"GET /api/skills/presets":                false,
-		"GET /api/agent/skills/usage":            false,
-		"POST /api/admin/companies":              false,
-		"GET /api/company/membership":            false,
-		"POST /api/company/members/:id/credits":  false,
-		"PUT /api/fixed-channels/:id/credential": false,
+		"GET /api/openapi.yaml":                          false,
+		"GET /api/workbench/tools":                       false,
+		"GET /api/workbench/tasks":                       false,
+		"POST /api/workbench/tasks":                      false,
+		"GET /api/projects":                              false,
+		"POST /api/tasks":                                false,
+		"POST /api/tasks/:id/recover-media":              false,
+		"GET /api/resources":                             false,
+		"GET /api/skills/presets":                        false,
+		"GET /api/agent/skills/usage":                    false,
+		"POST /api/admin/companies":                      false,
+		"PATCH /api/admin/companies/:id":                 false,
+		"POST /api/admin/companies/:id/admins":           false,
+		"DELETE /api/admin/companies/:id/admins/:userId": false,
+		"GET /api/company/membership":                    false,
+		"POST /api/company/members/:id/credits":          false,
+		"PUT /api/fixed-channels/:id/credential":         false,
 	}
 	for _, route := range router.Routes() {
 		key := route.Method + " " + route.Path

@@ -96,12 +96,14 @@ export function AdminUserDetailDrawer({ userId, onClose, previousUserId, nextUse
             onClose={onClose}
             size="min(920px, 100vw)"
             rootClassName="admin-drawer"
-            extra={onNavigate ? (
-                <div className="flex items-center gap-1">
-                    <IconButton size="sm" variant="ghost" aria-label="上一条用户" disabled={!previousUserId} icon={ChevronLeft} onClick={() => previousUserId && onNavigate(previousUserId)} />
-                    <IconButton size="sm" variant="ghost" aria-label="下一条用户" disabled={!nextUserId} icon={ChevronRight} onClick={() => nextUserId && onNavigate(nextUserId)} />
-                </div>
-            ) : null}
+            extra={
+                onNavigate ? (
+                    <div className="flex items-center gap-1">
+                        <IconButton size="sm" variant="ghost" aria-label="上一条用户" disabled={!previousUserId} icon={ChevronLeft} onClick={() => previousUserId && onNavigate(previousUserId)} />
+                        <IconButton size="sm" variant="ghost" aria-label="下一条用户" disabled={!nextUserId} icon={ChevronRight} onClick={() => nextUserId && onNavigate(nextUserId)} />
+                    </div>
+                ) : null
+            }
         >
             {loading && !detail ? (
                 <Skeleton active paragraph={{ rows: 10 }} />
@@ -120,8 +122,15 @@ export function AdminUserDetailDrawer({ userId, onClose, previousUserId, nextUse
                                         items={[
                                             { key: "username", label: "用户名", children: `@${detail.user.username}` },
                                             { key: "email", label: "邮箱", children: detail.user.email || "未填写" },
-                                            { key: "role", label: "角色", children: detail.user.role === "admin" ? "管理员" : "普通用户" },
-                                            { key: "status", label: "状态", children: <AdminStatusBadge label={detail.user.status === "active" ? "启用" : "停用"} tone={detail.user.status === "active" ? "success" : "neutral"} /> },
+                                            { key: "role", label: "平台角色", children: detail.user.role === "admin" ? "平台管理员" : "普通平台账号" },
+                                            { key: "status", label: "账号状态", children: <AdminStatusBadge label={detail.user.status === "active" ? "启用" : "停用"} tone={detail.user.status === "active" ? "success" : "neutral"} /> },
+                                            ...(detail.user.companyRole
+                                                ? [
+                                                      { key: "company", label: "所属公司", children: detail.user.companyName || "—" },
+                                                      { key: "company-role", label: "公司身份", children: detail.user.companyRole === "admin" ? "公司管理员" : "公司员工" },
+                                                      { key: "company-status", label: "公司状态", children: detail.user.companyStatus === "disabled" ? "公司已停用，暂不可登录" : detail.user.companyStatus === "active" ? "启用" : "状态未提供" },
+                                                  ]
+                                                : []),
                                             { key: "available", label: "可用积分", children: formatCredits(detail.account.availableMicrocredits) },
                                             { key: "recharge", label: "累计充值积分", children: formatCredits(detail.counts.rechargeMicrocredits) },
                                             { key: "checkin", label: "累计签到积分", children: formatCredits(detail.counts.checkinMicrocredits) },
@@ -147,7 +156,7 @@ export function AdminUserDetailDrawer({ userId, onClose, previousUserId, nextUse
                                                         <span className="text-foreground/60">{item.label}</span>
                                                         <span className="shrink-0 tabular-nums text-foreground/75">{item.display}</span>
                                                     </div>
-                                                    <Progress percent={Math.min(100, item.limit > 0 ? Math.round(item.value / item.limit * 100) : 0)} size="small" showInfo={false} status={item.value >= item.limit ? "exception" : "normal"} />
+                                                    <Progress percent={Math.min(100, item.limit > 0 ? Math.round((item.value / item.limit) * 100) : 0)} size="small" showInfo={false} status={item.value >= item.limit ? "exception" : "normal"} />
                                                 </div>
                                             ))}
                                         </div>
@@ -171,10 +180,10 @@ export function AdminUserDetailDrawer({ userId, onClose, previousUserId, nextUse
                                         dataSource: ledger,
                                         pagination: false,
                                         columns: [
-                                        { title: "时间", dataIndex: "createdAt", width: 170, render: formatTime },
-                                        { title: "类型", dataIndex: "type", width: 130 },
-                                        { title: "变化", dataIndex: "amountMicrocredits", width: 120, align: "right", render: (value) => formatCredits(value) },
-                                        { title: "说明", dataIndex: "note", ellipsis: true },
+                                            { title: "时间", dataIndex: "createdAt", width: 170, render: formatTime },
+                                            { title: "类型", dataIndex: "type", width: 130 },
+                                            { title: "变化", dataIndex: "amountMicrocredits", width: 120, align: "right", render: (value) => formatCredits(value) },
+                                            { title: "说明", dataIndex: "note", ellipsis: true },
                                         ],
                                         scroll: { x: 720 },
                                     }}
@@ -194,11 +203,11 @@ export function AdminUserDetailDrawer({ userId, onClose, previousUserId, nextUse
                                         dataSource: tasks,
                                         pagination: false,
                                         columns: [
-                                        { title: "时间", dataIndex: "createdAt", width: 170, render: formatTime },
-                                        { title: "类型", dataIndex: "type", width: 180 },
-                                        { title: "模型", dataIndex: "model", width: 180, ellipsis: true },
-                                        { title: "状态", dataIndex: "status", width: 100, render: (value) => <AdminStatusBadge label={value || "未知"} tone={taskStatusTone(value)} /> },
-                                        { title: "阶段", dataIndex: "stage", ellipsis: true },
+                                            { title: "时间", dataIndex: "createdAt", width: 170, render: formatTime },
+                                            { title: "类型", dataIndex: "type", width: 180 },
+                                            { title: "模型", dataIndex: "model", width: 180, ellipsis: true },
+                                            { title: "状态", dataIndex: "status", width: 100, render: (value) => <AdminStatusBadge label={value || "未知"} tone={taskStatusTone(value)} /> },
+                                            { title: "阶段", dataIndex: "stage", ellipsis: true },
                                         ],
                                         scroll: { x: 820 },
                                     }}
@@ -218,10 +227,10 @@ export function AdminUserDetailDrawer({ userId, onClose, previousUserId, nextUse
                                         dataSource: events,
                                         pagination: false,
                                         columns: [
-                                        { title: "时间", dataIndex: "createdAt", width: 170, render: formatTime },
-                                        { title: "管理员", dataIndex: "actorUserId", width: 160, ellipsis: true },
-                                        { title: "动作", dataIndex: "action", width: 160 },
-                                        { title: "摘要", dataIndex: "summary", ellipsis: true },
+                                            { title: "时间", dataIndex: "createdAt", width: 170, render: formatTime },
+                                            { title: "管理员", dataIndex: "actorUserId", width: 160, ellipsis: true },
+                                            { title: "动作", dataIndex: "action", width: 160 },
+                                            { title: "摘要", dataIndex: "summary", ellipsis: true },
                                         ],
                                         scroll: { x: 720 },
                                     }}
@@ -253,7 +262,7 @@ function taskStatusTone(value?: string): AdminStatusTone {
 
 function quotaUsageItems(detail: AdminUserDetail) {
     const structuredBytes = detail.storageUsage.assetBytes + detail.storageUsage.canvasBytes;
-    const bytes = (value: number) => value >= 1024 ** 3 ? `${(value / 1024 ** 3).toFixed(2)} GB` : `${(value / 1024 ** 2).toFixed(1)} MB`;
+    const bytes = (value: number) => (value >= 1024 ** 3 ? `${(value / 1024 ** 3).toFixed(2)} GB` : `${(value / 1024 ** 2).toFixed(1)} MB`);
     const number = (value: number) => new Intl.NumberFormat("zh-CN").format(value);
     return [
         // 有效容量包含已购扩容；旧响应缺少 storageCapacity 时退回全局基础容量。

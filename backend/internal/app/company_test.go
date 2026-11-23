@@ -4,6 +4,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -32,6 +33,7 @@ func TestCompanyOnboardingIsolatedAndStartsAtZero(t *testing.T) {
 	if err := db.AutoMigrate(
 		&model.User{},
 		&model.AuthSession{},
+		&model.TaskTextDelta{},
 		&model.Company{},
 		&model.CompanyMember{},
 		&model.AdminAuditEvent{},
@@ -62,7 +64,7 @@ func TestCompanyOnboardingIsolatedAndStartsAtZero(t *testing.T) {
 		ID: "admin-b", Username: "admin-b",
 		Role: model.UserRoleUser, Status: model.UserStatusActive,
 	}
-	for _, user := range []*model.User{platform, adminA, adminB} {
+	for _, user := range []*model.User{platform} {
 		if err := db.Create(user).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -79,22 +81,34 @@ func TestCompanyOnboardingIsolatedAndStartsAtZero(t *testing.T) {
 	if err := defaultGroup.Update("all_channels", false).Error; err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateAdminCompany(platform, CreateCompanyRequest{Name: "No authorization", AdminUserID: adminA.ID}); err == nil {
+	request := func(name, username string) CreateCompanyRequest {
+		return CreateCompanyRequest{Name: name, Admin: CreateCompanyAdminRequest{CreateCompanyMemberRequest: CreateCompanyMemberRequest{Username: username, Password: "admin-password"}}}
+	}
+	if _, err := s.CreateAdminCompany(platform, request("No authorization", adminA.Username)); err == nil {
 		t.Fatal("company opened without the default group's fixed-channel grant")
+	}
+	if _, err := s.repo.UserByUsername(adminA.Username); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("failed company opening created an account: %v", err)
 	}
 	if err := defaultGroup.Update("all_channels", true).Error; err != nil {
 		t.Fatal(err)
 	}
 	for _, admin := range []*model.User{adminA, adminB} {
-		if _, err := s.CreateAdminCompany(platform, CreateCompanyRequest{Name: admin.Username, AdminUserID: admin.ID}); err != nil {
+		company, err := s.CreateAdminCompany(platform, request(admin.Username, admin.Username))
+		if err != nil {
 			t.Fatal(err)
 		}
+		created, err := s.repo.User(company.Admins[0].UserID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		*admin = *created
 	}
-	if _, err := s.CreateAdminCompany(platform, CreateCompanyRequest{Name: "Duplicate", AdminUserID: adminA.ID}); err == nil {
-		t.Fatal("company binding accepted an existing member")
+	if _, err := s.CreateAdminCompany(platform, request("Duplicate", adminA.Username)); err == nil {
+		t.Fatal("company opening accepted a duplicate username")
 	}
-	if _, err := s.CreateAdminCompany(platform, CreateCompanyRequest{Name: "Platform admin", AdminUserID: platform.ID}); err == nil {
-		t.Fatal("company binding accepted a platform admin")
+	if _, err := s.CreateAdminCompany(platform, request("Platform admin", platform.Username)); err == nil {
+		t.Fatal("company opening accepted a duplicate platform admin username")
 	}
 	if companies, err := s.AdminCompanies(platform); err != nil || len(companies) != 2 {
 		t.Fatalf("company list = %+v, err = %v", companies, err)
@@ -167,5 +181,58 @@ func TestCompanyOnboardingIsolatedAndStartsAtZero(t *testing.T) {
 	membersA, err := s.CompanyMembers(adminA)
 	if err != nil || len(membersA.Members) != 2 || membersA.Members[1].Status != model.UserStatusDisabled {
 		t.Fatalf("company list after disable = %+v, err = %v", membersA, err)
+	}
+	companyID := membersA.Company.CompanyID
+	filtered, err := s.AdminUsers(platform, AdminListQuery{CompanyID: companyID, CompanyRole: "employee", Status: "disabled"})
+	if err != nil || filtered.Total != 1 || filtered.Users[0].ID != employee.UserID {
+		t.Fatalf("company employee filter = %+v, err = %v", filtered, err)
+	}
+	if _, err := s.AddAdminCompanyAdmin(adminA, companyID, user.Username); err == nil {
+		t.Fatal("company administrator appointed another administrator")
+	}
+	if _, err := s.AddAdminCompanyAdmin(platform, companyID, adminB.Username); err == nil {
+		t.Fatal("company accepted an account from another company")
+	}
+	if err := s.DeleteUser(platform, adminA.ID); err == nil {
+		t.Fatal("disabled the only administrator")
+	}
+	if _, err := s.UpdateUser(platform, adminA.ID, UpdateUserRequest{Status: model.UserStatusDisabled}); err == nil {
+		t.Fatal("updated the only administrator to disabled")
+	}
+	if _, err := s.DemoteAdminCompanyAdmin(platform, companyID, adminA.ID); err == nil {
+		t.Fatal("demoted the only administrator")
+	}
+	alternate := &model.User{ID: "alternate", Username: "alternate", Role: model.UserRoleUser, Status: model.UserStatusActive}
+	if err := db.Create(alternate).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddAdminCompanyAdmin(platform, companyID, alternate.Username); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.BulkDisableUsers(platform, BulkDisableUsersRequest{UserIDs: []string{adminA.ID, alternate.ID}}); err == nil {
+		t.Fatal("bulk-disabled all company administrators")
+	}
+	session := &model.AuthSession{ID: "company-session", UserID: adminA.ID, ExpiresAt: time.Now().Add(time.Hour)}
+	if err := s.repo.CreateAuthSessionForUser(adminA, session); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpdateAdminCompanyStatus(platform, companyID, model.UserStatusDisabled); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.repo.AuthSession(session.ID); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("company session was not revoked: %v", err)
+	}
+	if err := s.repo.CreateAuthSessionForUser(adminA, session); !errors.Is(err, repository.ErrCompanyDisabled) {
+		t.Fatalf("disabled company session creation: %v", err)
+	}
+	if _, err := s.UpdateAdminCompanyStatus(platform, companyID, model.UserStatusActive); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.repo.CreateAuthSessionForUser(adminA, session); err != nil {
+		t.Fatal(err)
+	}
+	user, err = s.repo.User(employee.UserID)
+	if err != nil || user.Status != model.UserStatusDisabled {
+		t.Fatalf("restoration changed disabled employee: %+v, %v", user, err)
 	}
 }

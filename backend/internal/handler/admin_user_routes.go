@@ -26,6 +26,7 @@ func registerAdminUserRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		users, err := svc.AdminUsers(user, service.AdminListQuery{
 			Keyword: c.Query("keyword"), Type: c.Query("role"), Status: c.Query("status"), Group: c.Query("group"),
+			CompanyID: c.Query("companyId"), CompanyRole: c.Query("companyRole"),
 			ExcludeCompanyEmployees: c.Query("excludeCompanyEmployees") == "true", Page: page, Limit: limit,
 		})
 		if err != nil {

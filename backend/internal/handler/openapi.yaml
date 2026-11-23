@@ -41,12 +41,18 @@ paths:
       tags: [admin]
       summary: 分页查询平台用户和公司身份
       parameters:
+        - name: companyId
+          in: query
+          schema: {type: string}
+        - name: companyRole
+          in: query
+          schema: {type: string, enum: [admin, employee, none]}
         - name: excludeCompanyEmployees
           in: query
           schema: {type: boolean, default: false}
           description: 分页前排除公司员工，平台管理员保留
       responses:
-        "200": {description: 用户列表及可选公司身份 companyName 和 companyRole}
+        "200": {description: 用户列表及可选字段 companyName、companyRole、companyStatus}
         "403": {$ref: "#/components/responses/Error"}
   /admin/companies:
     get:
@@ -57,22 +63,83 @@ paths:
         "403": {$ref: "#/components/responses/Error"}
     post:
       tags: [admin]
-      summary: 开通公司并绑定首位管理员
+      summary: 开通公司并创建首位管理员账号
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [name]
+              required: [name, admin]
               properties:
                 name: {type: string}
-                adminUsername: {type: string, description: 已有普通用户的用户名}
-                adminUserId: {type: string, description: 已有普通用户的 ID}
+                admin:
+                  type: object
+                  required: [username, password]
+                  properties:
+                    username: {type: string}
+                    password: {type: string, format: password, writeOnly: true}
+                    email: {type: string, format: email}
+                    displayName: {type: string}
+                    userGroup: {type: string, default: default}
       responses:
         "200": {description: 公司已开通}
         "400": {$ref: "#/components/responses/Error"}
         "403": {$ref: "#/components/responses/Error"}
+  /admin/companies/{id}:
+    patch:
+      tags: [admin]
+      summary: 停用或恢复公司
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: {type: string, enum: [active, disabled]}
+      responses:
+        "200": {description: 更新后的公司 company}
+        "400": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
+  /admin/companies/{id}/admins:
+    post:
+      tags: [admin]
+      summary: 从已有账号任命公司管理员
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [usernameOrEmail]
+              properties:
+                usernameOrEmail: {type: string}
+      responses:
+        "200": {description: 更新后的成员 member}
+        "400": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+  /admin/companies/{id}/admins/{userId}:
+    delete:
+      tags: [admin]
+      summary: 将公司管理员调整为员工
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+        - {name: userId, in: path, required: true, schema: {type: string}}
+      responses:
+        "200": {description: 更新后的成员 member}
+        "400": {$ref: "#/components/responses/Error"}
+        "403": {$ref: "#/components/responses/Error"}
+        "404": {$ref: "#/components/responses/Error"}
+        "409": {$ref: "#/components/responses/Error"}
   /company/membership:
     get:
       tags: [auth]

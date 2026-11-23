@@ -10,10 +10,11 @@ const (
 )
 
 type Company struct {
-	ID        string    `json:"id" gorm:"primaryKey;size:36"`
-	Name      string    `json:"name" gorm:"size:120;not null"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	Status    UserStatus `json:"status" gorm:"size:16;not null;default:active"`
+	ID        string     `json:"id" gorm:"primaryKey;size:36"`
+	Name      string     `json:"name" gorm:"size:120;not null"`
+	CreatedAt time.Time  `json:"createdAt"`
+	UpdatedAt time.Time  `json:"updatedAt"`
 }
 
 // CompanyMember records company authority separately from the user's global role.

@@ -13,7 +13,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const CurrentSchemaVersion int64 = 94
+const CurrentSchemaVersion int64 = 95
 
 const baselineSchemaChecksum = "sha256:open-ai-canvas-schema-v1-20260830"
 const schemaMigrationAppliedAtIndexChecksum = "sha256:schema-migrations-applied-at-index-v2-20260830"
@@ -337,6 +337,12 @@ var schemaMigrations = []migration{
 		return nil
 	}},
 	{version: 94, name: "companies_and_fixed_channels", checksum: "sha256:companies-and-fixed-channels-v94-20261112", apply: migrateCompaniesAndFixedChannels},
+	{version: 95, name: "company_status", checksum: "sha256:company-status-v95", apply: func(tx *gorm.DB) error {
+		if tx.Migrator().HasColumn(&model.Company{}, "Status") {
+			return nil
+		}
+		return tx.Migrator().AddColumn(&model.Company{}, "Status")
+	}},
 }
 
 func migrateCompaniesAndFixedChannels(tx *gorm.DB) error {

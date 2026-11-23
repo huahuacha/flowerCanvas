@@ -19,7 +19,7 @@ func profileRepositoryDB(t *testing.T) (*gorm.DB, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&model.User{}, &model.AuthSession{}, &model.AuthVerification{}, &model.UserIdentity{}); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.Company{}, &model.CompanyMember{}, &model.AuthSession{}, &model.AuthVerification{}, &model.UserIdentity{}); err != nil {
 		t.Fatal(err)
 	}
 	sqlDB, _ := db.DB()

@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"yingce/backend/internal/model"
 	"yingce/backend/internal/service"
 )
 
@@ -116,5 +117,60 @@ func registerCompanyRoutes(r *gin.RouterGroup, svc *service.Service) {
 			return
 		}
 		ok(c, gin.H{"company": company})
+	})
+	r.PATCH("/admin/companies/:id", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
+		var req struct {
+			Status model.UserStatus `json:"status"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		company, err := svc.UpdateAdminCompanyStatus(user, c.Param("id"), req.Status)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"company": company})
+	})
+	r.POST("/admin/companies/:id/admins", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
+		var req struct {
+			UsernameOrEmail string `json:"usernameOrEmail"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		member, err := svc.AddAdminCompanyAdmin(user, c.Param("id"), req.UsernameOrEmail)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"member": member})
+	})
+	r.DELETE("/admin/companies/:id/admins/:userId", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		member, err := svc.DemoteAdminCompanyAdmin(user, c.Param("id"), c.Param("userId"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"member": member})
 	})
 }

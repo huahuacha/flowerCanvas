@@ -443,6 +443,13 @@ func (s *Service) CurrentUser(cookieValue string) (*model.User, error) {
 	if user.Status != model.UserStatusActive {
 		return nil, kernel.Forbidden("该账号已被禁用")
 	}
+	company, err := s.repo.UserCompany(user.ID)
+	if err != nil {
+		return nil, err
+	}
+	if company.CompanyRole != "" && company.CompanyStatus != model.UserStatusActive {
+		return nil, kernel.Forbidden(repository.ErrCompanyDisabled.Error())
+	}
 	return user, nil
 }
 
@@ -487,6 +494,9 @@ func (s *Service) createAuthSession(user *model.User, event *model.LoginLog) (*A
 	event.SessionRef = HashToken(session.ID)
 	event.CreatedAt = now.UTC()
 	if err := s.repo.CreateAuthSessionForUser(user, &session, event); err != nil {
+		if errors.Is(err, repository.ErrCompanyDisabled) {
+			return nil, kernel.Forbidden(err.Error())
+		}
 		return nil, profileWriteError(err)
 	}
 	s.host.RecordActivity(user.ID, "login", 1)

@@ -57,3 +57,39 @@ func TestCompaniesAndFixedChannelsMigrationPreservesLegacyChannel(t *testing.T) 
 		t.Fatal("route attempts missing submission credential column")
 	}
 }
+
+func TestCompanyStatusMigrationEnablesExistingCompanies(t *testing.T) {
+	db, err := gorm.Open(sqlite.Dialector{DriverName: "sqlite", DSN: filepath.Join(t.TempDir(), "status.db")}, &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	for _, sql := range []string{
+		"CREATE TABLE companies (id text PRIMARY KEY, name text NOT NULL)",
+		"INSERT INTO companies (id, name) VALUES ('legacy', 'Existing company')",
+	} {
+		if err := db.Exec(sql).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, migration := range schemaMigrations {
+		if migration.name == "company_status" {
+			if err := db.Transaction(migration.apply); err != nil {
+				t.Fatal(err)
+			}
+			var company model.Company
+			if err := db.First(&company, "id = ?", "legacy").Error; err != nil {
+				t.Fatal(err)
+			}
+			if company.Status != model.UserStatusActive {
+				t.Fatalf("legacy company status = %q, want active", company.Status)
+			}
+			return
+		}
+	}
+	t.Fatal("company status migration missing")
+}

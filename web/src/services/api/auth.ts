@@ -43,6 +43,7 @@ export type LocalUser = {
 export type AdminUser = LocalUser & {
     companyName?: string;
     companyRole?: "admin" | "employee";
+    companyStatus?: "active" | "disabled";
     availableMicrocredits: number;
     reservedMicrocredits: number;
     /** 仅用户列表返回：累计充值到账积分与累计已结算消耗。 */
@@ -144,7 +145,7 @@ export type AdminAuditEvent = {
 };
 
 export type AdminUserDetail = {
-    user: LocalUser;
+    user: LocalUser & Pick<AdminUser, "companyName" | "companyRole" | "companyStatus">;
     account: { userId: string; availableMicrocredits: number; reservedMicrocredits: number; version: number };
     counts: { ledgerEntries: number; tasks: number; apiCalls: number; auditEvents: number; rechargeMicrocredits: number; checkinMicrocredits: number };
     storageUsage: {
@@ -549,7 +550,7 @@ export async function logout() {
     return result;
 }
 
-export type AdminListParams = { keyword?: string; status?: string; role?: string; group?: string; page?: number; pageSize?: number; excludeCompanyEmployees?: boolean };
+export type AdminListParams = { keyword?: string; status?: string; role?: string; group?: string; page?: number; pageSize?: number; excludeCompanyEmployees?: boolean; companyId?: string; companyRole?: "admin" | "employee" | "none" };
 
 export function listAdminUsers(params: AdminListParams = {}) {
     return http.get<{ users: AdminUser[]; total: number; page: number; pageSize: number }>("/admin/users", { params });
