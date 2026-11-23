@@ -26,7 +26,7 @@ func TestEcommerceAgentHTTPMockSSEAndTaskRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = db.AutoMigrate(&model.SystemSetting{}, &model.User{}, &model.AuthSession{}, &model.CreditAccount{}, &model.CreditLedgerEntry{}, &model.BillingOrder{}, &model.EcommerceProject{}, &model.EcommerceAgentAnalysis{}, &model.EcommerceAgentRun{}, &model.EcommerceAgentPage{}, &model.EcommerceAgentCanvasVersion{}); err != nil {
+	if err = db.AutoMigrate(&model.SystemSetting{}, &model.User{}, &model.AuthSession{}, &model.Company{}, &model.CompanyMember{}, &model.CreditAccount{}, &model.CreditLedgerEntry{}, &model.BillingOrder{}, &model.EcommerceProject{}, &model.EcommerceAgentAnalysis{}, &model.EcommerceAgentRun{}, &model.EcommerceAgentPage{}, &model.EcommerceAgentCanvasVersion{}); err != nil {
 		t.Fatal(err)
 	}
 	user := model.User{ID: "ecommerce-http-user", Username: "ecommerce-http-user", Role: model.UserRoleUser, Status: model.UserStatusActive}
