@@ -67,9 +67,19 @@ func TestCloudAgentPiModelRetriesEmptyOutputWithThinkingOff(t *testing.T) {
 		if got := input.TextOptions.ThinkingLevel; got != level {
 			t.Fatalf("task thinking level = %q, want %q", got, level)
 		}
-		updates := map[string]any{"status": model.TaskStatusFailed, "error": "画布 Agent 接口没有返回内容"}
+		var updates map[string]any
 		if level == "off" {
 			updates = map[string]any{"status": model.TaskStatusSucceeded, "result_json": `{"text":"已恢复","toolCalls":[]}`}
+		} else {
+			parser := newStreamingAgentParser("chat-completion", nil)
+			parser.terminal = true
+			_, err := parser.result()
+			if err == nil {
+				t.Fatal("expected a failure for empty model output")
+			}
+			task.Error = err.Error()
+			recordTaskDiagnostic(&task, "execution", "provider_execution_failed", "accepted", "new_generation_authorization", err)
+			updates = map[string]any{"status": model.TaskStatusFailed, "error": task.Error, "execution_diagnostic_json": task.ExecutionDiagnosticJSON}
 		}
 		if err := db.Model(&model.Task{}).Where("id = ?", task.ID).Updates(updates).Error; err != nil {
 			t.Fatal(err)
@@ -174,6 +184,13 @@ func TestCloudAgentPiCompactionSummaryUsesStandardStepWithoutAssistantEvent(t *t
 		t.Fatalf("Pi summary system prompt was not preserved: %#v", firstMessage)
 	}
 
+	if err := db.Create(&model.ApiCallLog{
+		ID: "pi-summary-usage", UserID: "user", TaskID: taskID, Capability: "text",
+		Status: model.ApiCallStatusSucceeded, UsageAvailable: true,
+		InputTokens: 12000, OutputTokens: 300, CachedTokens: 8000, CacheWriteTokens: 1000,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := db.Model(&model.Task{}).Where("id = ?", taskID).Updates(map[string]any{
 		"status":      model.TaskStatusSucceeded,
 		"result_json": `{"text":"internal compaction summary","toolCalls":[]}`,
@@ -188,6 +205,9 @@ func TestCloudAgentPiCompactionSummaryUsesStandardStepWithoutAssistantEvent(t *t
 		result, _ := got.result.(map[string]any)
 		if result["text"] != "internal compaction summary" {
 			t.Fatalf("Pi did not receive summary: %#v", got.result)
+		}
+		if want := (map[string]int64{"input": 3000, "output": 300, "cacheRead": 8000, "cacheWrite": 1000, "totalTokens": 12300}); !reflect.DeepEqual(result["usage"], want) {
+			t.Fatalf("Pi usage must preserve upstream counts without counting cached input twice: got %#v, want %#v", result["usage"], want)
 		}
 	case <-ctx.Done():
 		t.Fatal("summary model bridge did not return")
@@ -274,6 +294,40 @@ func TestCloudAgentPiCompactionSummarySkipsOrdinaryTranscriptValidation(t *testi
 	}
 	if canonical.SystemPrompt != "" || stringField(canonical.Messages[0], "content") != cloudAgentCompactionSummarySystemPromptPrefix {
 		t.Fatalf("summary system prompt not isolated: %#v", canonical)
+	}
+}
+
+func TestCloudAgentPiCanonicalKeepsFrozenPrefixAcrossRuntimeRestarts(t *testing.T) {
+	existing := canonicalAgentRequest{
+		SystemPrompt: "Frozen platform policy", PromptCacheKey: "stable-user-model-policy",
+		Tools: []map[string]any{{"type": "function", "function": map[string]any{"name": "read_feedback"}}},
+		Messages: []map[string]any{
+			{"role": "system", "content": "Frozen platform policy"},
+			{"role": "user", "content": "Earlier request"},
+		},
+	}
+	var before canonicalAgentRequest
+	for _, cwd := range []string{"/tmp/agent-runtime-first/work", "/tmp/agent-runtime-resumed/work"} {
+		canonical, err := cloudAgentPiCanonicalForModelRequest([]map[string]any{
+			{"role": "system", "content": "Frozen platform policy\n<cwd>" + cwd + "</cwd>"},
+			{"role": "user", "content": "Earlier request"},
+			{"role": "assistant", "content": []any{map[string]any{"type": "text", "text": "Earlier answer"}}},
+			{"role": "system", "content": "Pi runtime metadata changed: " + cwd},
+			{"role": "user", "content": "Continue"},
+		}, existing)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(canonical.Messages) != 4 || stringField(canonical.Messages[0], "content") != existing.SystemPrompt || stringField(canonical.Messages[3], "content") != "Continue" {
+			t.Fatalf("provider context must use the server policy and retain the continued conversation: %#v", canonical)
+		}
+		if canonical.PromptCacheKey != existing.PromptCacheKey || !reflect.DeepEqual(canonical.Tools, existing.Tools) {
+			t.Fatal("runtime restart changed the provider cache contract")
+		}
+		if before.SystemPrompt != "" && !reflect.DeepEqual(before, canonical) {
+			t.Fatal("temporary runtime cwd changed the provider context")
+		}
+		before = canonical
 	}
 }
 

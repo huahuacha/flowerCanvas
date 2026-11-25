@@ -22,6 +22,7 @@ import (
 
 	"yingce/backend/internal/model"
 	"yingce/backend/internal/platform"
+	"yingce/backend/internal/protocol"
 )
 
 func postGeminiJSON(ctx context.Context, config providerConfig, path string, body interface{}, target interface{}) error {
@@ -235,6 +236,8 @@ func doJSON(req *http.Request, target interface{}) error {
 	return nil
 }
 
+type providerProxyURLKey struct{}
+
 func doBinary(req *http.Request) ([]byte, string, error) {
 	return doBinaryWithConsumer(req, nil)
 }
@@ -257,7 +260,7 @@ func doBinaryWithConsumer(req *http.Request, onChunk func(string, []byte)) ([]by
 	cacheManagementRequest := requestKind == "cache-create" || requestKind == "cache-delete"
 	responseLimit := maxProviderResponseBytes
 	channelID := ""
-	channelProxyURL := ""
+	channelProxyURL, _ := req.Context().Value(providerProxyURLKey{}).(string)
 	if metadata, ok := req.Context().Value(providerAnalyticsKey{}).(providerAnalyticsContext); ok && metadata.Service != nil {
 		runtimeService = metadata.Service
 		coordinator = metadata.Service.coordinator
@@ -299,7 +302,7 @@ func doBinaryWithConsumer(req *http.Request, onChunk func(string, []byte)) ([]by
 			defer release()
 		}
 	}
-	if _, err := ValidateOutboundURL(req.URL.String()); err != nil {
+	if _, err := ValidateOutboundURLWithProxy(req.URL.String(), channelProxyURL); err != nil {
 		recordProviderRequest(req, startedAt, 0, nil, err)
 		return nil, "", err
 	}
@@ -313,7 +316,8 @@ func doBinaryWithConsumer(req *http.Request, onChunk func(string, []byte)) ([]by
 	}
 	if metadata, ok := req.Context().Value(providerAnalyticsKey{}).(providerAnalyticsContext); ok &&
 		runtimeService != nil && metadata.TaskID != "" && firstNonEmpty(requestKind, providerRequestKind(req.Method, req.URL.Path)) == "create" {
-		if _, err := runtimeService.requireActiveTaskOwner(metadata.UserID); err != nil {
+		task := model.Task{ID: metadata.TaskID, UserID: metadata.UserID, BillingOrderID: metadata.BillingOrderID}
+		if err := runtimeService.requireActiveTaskActor(&task); err != nil {
 			recordProviderRequest(req, startedAt, 0, nil, err)
 			return nil, "", providerNotSubmittedError{err}
 		}
@@ -373,7 +377,7 @@ func doBinaryWithConsumer(req *http.Request, onChunk func(string, []byte)) ([]by
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		if credential != "" {
-			data = redactFixedProviderCredential(data, credential)
+			data = []byte(fixedCredential.redactor().Replace(string(data)))
 		}
 		if runtimeService != nil && !cacheManagementRequest {
 			_ = runtimeService.RecordChannelResult(req.Context(), channelID, resp.StatusCode >= 500)
@@ -428,9 +432,12 @@ func recordProviderRequest(req *http.Request, startedAt time.Time, statusCode in
 		return
 	}
 	fixedCredential, _ := req.Context().Value(fixedProviderKeyContextKey{}).(fixedProviderRequestCredential)
-	credential := fixedCredential.key
-	if credential != "" {
-		responseBody = redactFixedProviderCredential(responseBody, credential)
+	loggedResponse := responseBody
+	var redact func(string) string
+	if fixedCredential.key != "" {
+		redact = fixedCredential.redactor().Replace
+		// Redact before the log formatter can truncate through a credential.
+		loggedResponse = []byte(redact(string(responseBody)))
 	}
 	status := model.ApiCallStatusSucceeded
 	errorCode := ""
@@ -461,13 +468,10 @@ func recordProviderRequest(req *http.Request, startedAt time.Time, statusCode in
 		APIFormat: apiFormat, Method: req.Method, Path: req.URL.Path, Model: metadata.Model,
 		Status: status, StatusCode: statusCode, DurationMs: time.Since(startedAt).Milliseconds(),
 		ErrorCode: errorCode, Error: errorText, ConcurrencyLimit: metadata.ConcurrencyLimit, UpstreamURL: req.URL.Scheme + "://" + req.URL.Host + req.URL.Path,
-		ProviderRequestID: metadata.ProviderRequestID, RequestContentType: req.Header.Get("Content-Type"), RequestBody: requestPayloadForLog(req), ResponseBody: SanitizeAPICallPayload(responseBody, ""),
+		ProviderRequestID: metadata.ProviderRequestID, RequestContentType: req.Header.Get("Content-Type"), RequestBody: requestPayloadForLog(req), ResponseBody: SanitizeAPICallPayload(loggedResponse, ""),
 	}
-	if credential != "" {
-		callLog.Error = strings.ReplaceAll(callLog.Error, credential, "[REDACTED]")
-		callLog.RequestBody = strings.ReplaceAll(callLog.RequestBody, credential, "[REDACTED]")
-		callLog.Path = strings.ReplaceAll(callLog.Path, credential, "[REDACTED]")
-		callLog.UpstreamURL = strings.ReplaceAll(callLog.UpstreamURL, credential, "[REDACTED]")
+	if requestKind == "create" {
+		callLog.GenerationContentJSON = metadata.GenerationContentJSON
 	}
 	channelSlotFailure := false
 	if code, message := ChannelSlotFailureDetails(requestErr); code != "" {
@@ -486,7 +490,35 @@ func recordProviderRequest(req *http.Request, startedAt time.Time, statusCode in
 		}
 	}
 	metadata.Service.EnrichAPICallLog(&callLog, responseBody)
+	if metadata.ProtocolReceipt != nil && (requestKind == "create" || requestKind == "poll") {
+		if requestKind == "create" {
+			callLog.ProviderRequestID = ""
+		}
+		if requestErr == nil && statusCode >= 200 && statusCode < 300 {
+			// The worker reuses this parse, so it must see the original protocol response.
+			if receipt, err := metadata.ProtocolReceipt.decode(req.Context(), responseBody); err == nil {
+				callLog.ProviderStatus = firstNonEmpty(callLog.ProviderStatus, string(receipt.Status))
+				if requestKind == "create" {
+					callLog.ProviderRequestID = receipt.TaskID
+				}
+			}
+		}
+	}
 	callLog.Error = withUserVisibleLogError(requestErr, callLog.Error)
+	if redact != nil {
+		callLog.Error = redact(callLog.Error)
+		callLog.ErrorCode = truncateRunes(redact(callLog.ErrorCode), 80)
+		callLog.RequestBody = redact(callLog.RequestBody)
+		callLog.ResponseBody = redact(callLog.ResponseBody)
+		callLog.Path = redact(callLog.Path)
+		callLog.UpstreamURL = redact(callLog.UpstreamURL)
+		if protocol.NormalizeStatus(callLog.ProviderStatus) == "" {
+			callLog.ProviderStatus = truncateRunes(redact(callLog.ProviderStatus), 32)
+		}
+		if fixedCredential.echoedInIdentifier(callLog.ProviderRequestID) {
+			callLog.ProviderRequestID = ""
+		}
+	}
 	if err := metadata.Service.LogAPICall(callLog); err != nil {
 		if !channelSlotFailure && metadata.Billing != nil {
 			if uncertainErr := metadata.Billing.MarkBillingUncertain(metadata.BillingOrderID, "上游调用日志写入失败，费用状态待核对"); uncertainErr != nil {

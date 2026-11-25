@@ -84,37 +84,6 @@ func TestPasswordLoginPreservesConcurrentDisable(t *testing.T) {
 	}
 }
 
-func TestCompanyStatusBlocksMemberLoginAndSession(t *testing.T) {
-	svc, db := newRegistrationTestService(t)
-	hash, err := HashPassword("member-password")
-	if err != nil {
-		t.Fatal(err)
-	}
-	user := &model.User{ID: "member", Username: "member", PasswordHash: hash, Role: model.UserRoleUser, Status: model.UserStatusActive}
-	company := &model.Company{ID: "company", Name: "Company", Status: model.UserStatusActive}
-	member := &model.CompanyMember{ID: "membership", CompanyID: company.ID, UserID: user.ID, Role: model.CompanyMemberRoleEmployee}
-	for _, item := range []any{user, company, member} {
-		if err := db.Create(item).Error; err != nil {
-			t.Fatal(err)
-		}
-	}
-	req := LoginRequest{Username: user.Username, Password: "member-password"}
-	session, err := svc.Login(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Model(company).Update("status", model.UserStatusDisabled).Error; err != nil {
-		t.Fatal(err)
-	}
-	// Leave the row in place to exercise the company check independently of revocation.
-	if _, err := svc.CurrentUser(session.Session); err == nil {
-		t.Fatal("existing session bypassed disabled company")
-	}
-	if _, err := svc.Login(req); err == nil {
-		t.Fatal("signed in to a disabled company")
-	}
-}
-
 func TestLinuxDOLoginPreservesConcurrentDisable(t *testing.T) {
 	t.Setenv("CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS", "127.0.0.1")
 	// Exercise the OAuth HTTP path over an in-memory connection, without sockets.

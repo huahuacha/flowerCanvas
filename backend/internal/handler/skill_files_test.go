@@ -27,11 +27,15 @@ func TestSkillPackageFilesEditHTTP(t *testing.T) {
 	sqlDB, _ := db.DB()
 	sqlDB.SetMaxOpenConns(1)
 	defer sqlDB.Close()
-	if err := db.AutoMigrate(&model.User{}, &model.AuthSession{}, &model.Company{}, &model.CompanyMember{}, &model.UserIdentity{}, &model.Skill{}, &model.SkillVersion{}, &model.SkillFile{}, &model.UserSkillState{}); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.AuthSession{}, &model.UserIdentity{}, &model.Skill{}, &model.SkillVersion{}, &model.SkillFile{}, &model.UserSkillState{}); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"owner", "other"} {
-		db.Create(&model.User{ID: id, Username: id, Role: model.UserRoleUser, Status: model.UserStatusActive})
+		role := model.UserRoleUser
+		if id == "owner" {
+			role = model.UserRoleAdmin
+		}
+		db.Create(&model.User{ID: id, Username: id, Role: role, Status: model.UserStatusActive})
 		db.Create(&model.AuthSession{ID: id, UserID: id, TokenHash: auth.HashToken("test-token"), ExpiresAt: time.Now().Add(time.Hour)})
 	}
 	svc := service.New(repository.New(db), t.TempDir())

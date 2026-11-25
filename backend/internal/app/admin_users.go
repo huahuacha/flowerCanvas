@@ -24,17 +24,35 @@ func (s *Service) RequireAdmin(user *model.User) error {
 	return nil
 }
 
+func (s *Service) AdminClearAgentHistory(actor *model.User, userID string) (int64, error) {
+	if err := s.RequireAdmin(actor); err != nil {
+		return 0, err
+	}
+	var freedBytes int64
+	err := s.repo.Transaction(func(tx *repository.Repository) error {
+		var err error
+		freedBytes, err = tx.ClearIdleAgentHistory(userID)
+		if err != nil {
+			return err
+		}
+		event, err := newAdminAuditEvent(actor, "user.agent_history.clear", "user", userID, "清理 Agent 全部历史", map[string]int64{"freedBytes": freedBytes})
+		if err != nil {
+			return err
+		}
+		return tx.AppendAdminAudit(event)
+	})
+	if err != nil {
+		return 0, err
+	}
+	return freedBytes, nil
+}
+
 func (s *Service) AdminUsers(actor *model.User, query AdminListQuery) (*AdminUserPage, error) {
 	if err := s.RequireAdmin(actor); err != nil {
 		return nil, err
 	}
 	page, limit := normalizeAdminPage(query.Page, query.Limit)
-	switch query.CompanyRole {
-	case "", "admin", "employee", "none":
-	default:
-		return nil, BadAuthRequest("公司身份无效")
-	}
-	users, total, err := s.repo.AdminUsers(query.Keyword, model.UserRole(query.Type), model.UserStatus(query.Status), strings.ToLower(strings.TrimSpace(query.Group)), strings.TrimSpace(query.CompanyID), query.CompanyRole, query.ExcludeCompanyEmployees, limit, (page-1)*limit)
+	users, total, err := s.repo.AdminUsers(query.Keyword, model.UserRole(query.Type), model.UserStatus(query.Status), strings.ToLower(strings.TrimSpace(query.Group)), limit, (page-1)*limit)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +77,7 @@ func (s *Service) AdminUsers(actor *model.User, query AdminListQuery) (*AdminUse
 		account := accountByUserID[user.ID]
 		total := totals[user.ID]
 		result = append(result, AdminUser{
-			User: user.User, CompanyName: user.CompanyName, CompanyRole: user.CompanyRole, CompanyStatus: user.CompanyStatus,
+			User:                  user,
 			AvailableMicrocredits: account.AvailableMicrocredits, ReservedMicrocredits: account.ReservedMicrocredits,
 			RechargedMicrocredits: total.RechargedMicrocredits, ConsumedMicrocredits: total.ConsumedMicrocredits,
 		})
@@ -207,13 +225,10 @@ func (s *Service) UpdateUser(actor *model.User, userID string, req UpdateUserReq
 		user, err = s.updateUser(repo, actor, userID, req)
 		return err
 	})
-	return user, companyWriteError(err)
+	return user, err
 }
 
 func (s *Service) updateUser(repo *repository.Repository, actor *model.User, userID string, req UpdateUserRequest) (*model.User, error) {
-	if err := repo.LockCompanyAccountEmail(normalizeEmail(req.Email)); err != nil {
-		return nil, err
-	}
 	user, err := repo.LockUserForUpdate(userID)
 	if err != nil {
 		return nil, err
@@ -228,13 +243,6 @@ func (s *Service) updateUser(repo *repository.Repository, actor *model.User, use
 	nextStatus := user.Status
 	if req.Status == model.UserStatusActive || req.Status == model.UserStatusDisabled {
 		nextStatus = req.Status
-	}
-	var changedStatus model.UserStatus
-	if user.Status != nextStatus {
-		changedStatus = nextStatus
-	}
-	if err := repo.CheckCompanyUserChanges([]string{user.ID}, nextRole, changedStatus); err != nil {
-		return nil, err
 	}
 	if user.Role == model.UserRoleAdmin && nextRole != model.UserRoleAdmin {
 		count, err := repo.ActiveAdminCountExcluding(user.ID)
@@ -318,9 +326,9 @@ func (s *Service) DeleteUser(actor *model.User, userID string) error {
 	if actor.ID == userID {
 		return BadAuthRequest("不能删除当前登录的管理员账号")
 	}
-	return companyWriteError(s.repo.Transaction(func(repo *repository.Repository) error {
+	return s.repo.Transaction(func(repo *repository.Repository) error {
 		return disableAdminUser(repo, actor, userID)
-	}))
+	})
 }
 
 func disableAdminUser(repo *repository.Repository, actor *model.User, userID string) error {
@@ -336,9 +344,6 @@ func disableAdminUser(repo *repository.Repository, actor *model.User, userID str
 		if count == 0 {
 			return BadAuthRequest("至少需要保留一个管理员")
 		}
-	}
-	if err := repo.CheckCompanyUserChanges([]string{user.ID}, "", model.UserStatusDisabled); err != nil {
-		return err
 	}
 	if err := repo.DeleteUserAuthSessions(user.ID); err != nil {
 		return err
@@ -402,7 +407,7 @@ func (s *Service) BulkDisableUsers(actor *model.User, req BulkDisableUsersReques
 		return nil, BadAuthRequest("批量操作后至少需要保留一个可用管理员")
 	}
 	if err != nil {
-		return nil, companyWriteError(err)
+		return nil, err
 	}
 	return &BulkDisableUsersResult{Users: users, DisabledCount: len(users)}, nil
 }

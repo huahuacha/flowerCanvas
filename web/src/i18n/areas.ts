@@ -9,7 +9,6 @@ import { catalog as canvasB } from "./messages/areas/canvasB";
 import { catalog as canvasC } from "./messages/areas/canvasC";
 import { catalog as drama } from "./messages/areas/drama";
 import { catalog as ecommerce } from "./messages/areas/ecommerce";
-import { catalog as company } from "./messages/areas/company";
 
 export const AREA_CATALOGS = {
     create,
@@ -21,5 +20,4 @@ export const AREA_CATALOGS = {
     canvasC,
     drama,
     ecommerce,
-    company,
 };

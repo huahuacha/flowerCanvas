@@ -1,12 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { I18nextProvider } from "react-i18next";
 import { CanvasAppearanceControls } from "../src/components/canvas/canvas-appearance-controls";
+import { i18n } from "../src/i18n";
 import { canvasThemes } from "../src/lib/canvas-theme";
 import { CANVAS_APPEARANCE_PRESETS, canvasAppearanceBaseTheme, canvasAppearanceForPreset, canvasAppearanceForTheme, updateCustomCanvasAppearance, type CanvasAppearance } from "../src/lib/canvas/canvas-appearance";
 
 function render(appearance: CanvasAppearance) {
     const theme = canvasAppearanceBaseTheme(appearance, "light");
-    return renderToStaticMarkup(<CanvasAppearanceControls appearance={appearance} backgroundMode="lines" colorTheme={theme} theme={canvasThemes[theme]} onAppearanceChange={() => {}} onSaveAppearanceDefault={() => {}} onBackgroundModeChange={() => {}} />);
+    return renderToStaticMarkup(
+        <I18nextProvider i18n={i18n}>
+            <CanvasAppearanceControls appearance={appearance} backgroundMode="lines" colorTheme={theme} theme={canvasThemes[theme]} onAppearanceChange={() => {}} onSaveAppearanceDefault={() => {}} onBackgroundModeChange={() => {}} />
+        </I18nextProvider>,
+    );
 }
 
 describe("canvas appearance hierarchy", () => {

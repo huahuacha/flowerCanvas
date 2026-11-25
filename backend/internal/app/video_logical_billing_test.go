@@ -40,7 +40,7 @@ func TestUnifiedVideoQuoteAndTaskUseResolvedProviderGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	routed, input, err := svc.resolveTaskModelSelection(testGroupUserID(svc), map[string]any{"mode": "video", "config": map[string]any{}}, logical.ID, "canvas_video", "", true)
+	routed, input, err := svc.resolveTaskModelSelection(testGroupUserID(svc), map[string]any{"mode": "video", "config": map[string]any{}}, logical.ID, "canvas_video", "", true, false)
 	if err != nil {
 		t.Fatal(err)
 	}

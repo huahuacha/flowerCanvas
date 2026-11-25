@@ -10,7 +10,7 @@ import (
 )
 
 type AdminUserDetail struct {
-	User             repository.AdminUserRecord  `json:"user"`
+	User             model.User                  `json:"user"`
 	Account          model.CreditAccount         `json:"account"`
 	Counts           repository.AdminUserCounts  `json:"counts"`
 	StorageUsage     repository.UserStorageUsage `json:"storageUsage"`
@@ -69,10 +69,6 @@ func (s *Service) AdminUserDetail(actor *model.User, userID string) (*AdminUserD
 	if err != nil {
 		return nil, err
 	}
-	company, err := s.repo.UserCompany(user.ID)
-	if err != nil {
-		return nil, err
-	}
 	account, err := s.repo.CreditAccount(user.ID)
 	if err != nil {
 		return nil, err
@@ -97,12 +93,13 @@ func (s *Service) AdminUserDetail(actor *model.User, userID string) (*AdminUserD
 	if err != nil {
 		return nil, err
 	}
+	usage.AgentLimitBytes = policy.Resource.AgentHistoryMB << 20
 	capacity, err := s.computeAccountStorageStatus(user.ID, time.Now(), false)
 	if err != nil {
 		return nil, err
 	}
 	return &AdminUserDetail{
-		User: repository.AdminUserRecord{User: *user, UserCompany: company}, Account: *account, Counts: counts, StorageUsage: usage,
+		User: *user, Account: *account, Counts: counts, StorageUsage: usage,
 		StoredFileBytes: storedFileBytes, DailyUploadBytes: dailyUploadBytes, Quota: policy.Resource,
 		StorageCapacity: *capacity,
 	}, nil

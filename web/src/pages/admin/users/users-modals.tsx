@@ -104,9 +104,9 @@ export function AdminUserEditModal({ user, actorId, groups, onClose, onSaved }: 
                 <Form.Item className="is-wide" name="password" label="重置密码" extra="留空表示不修改；保存后该用户已有登录会话会失效。" rules={[{ min: 8, message: "密码至少 8 位" }]}>
                     <Input.Password placeholder="输入新密码以手动重置" autoComplete="new-password" />
                 </Form.Item>
-                <Form.Item name="role" label="平台角色" extra={editingSelf ? "不能在此修改当前管理员自己的角色。" : user?.companyRole ? "公司成员使用普通平台账号，任免公司管理员请前往公司管理。" : "角色变更会立即影响后台访问权限。"}>
+                <Form.Item name="role" label="平台角色" extra={editingSelf ? "不能在此修改当前管理员自己的角色。" : "角色变更会立即影响后台访问权限。"}>
                     <Select
-                        disabled={editingSelf || Boolean(user?.companyRole)}
+                        disabled={editingSelf}
                         options={[
                             { label: "管理员", value: "admin" },
                             { label: "普通用户", value: "user" },

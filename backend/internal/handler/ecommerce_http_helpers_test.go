@@ -29,7 +29,7 @@ func newGitHubSkillHTTPTest(t *testing.T) (*gin.Engine, *gorm.DB, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = sqlDB.Close() })
-	if err := db.AutoMigrate(&model.User{}, &model.UserIdentity{}, &model.AuthSession{}, &model.Company{}, &model.CompanyMember{}, &model.Skill{}, &model.UserSkillState{}, &model.SkillVersion{}, &model.SkillFile{}); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.UserIdentity{}, &model.AuthSession{}, &model.Skill{}, &model.UserSkillState{}, &model.SkillVersion{}, &model.SkillFile{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Create(&model.User{ID: "github-owner", Username: "github-owner", Role: model.UserRoleUser, Status: model.UserStatusActive}).Error; err != nil {

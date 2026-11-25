@@ -9,7 +9,6 @@ import (
 	"gorm.io/gorm"
 	"yingce/backend/internal/kernel"
 	"yingce/backend/internal/model"
-	"yingce/backend/internal/repository"
 )
 
 const fixedChannelMissingKeyHint = "请先在个人设置 → 渠道与存储 → 固定渠道填写该渠道的 API Key"
@@ -32,6 +31,10 @@ func fixedChannelMissingKey() *kernel.AppError {
 	return err
 }
 
+func fixedChannelTeamUnavailable() *kernel.AppError {
+	return Forbidden("固定渠道仅可在个人工作区使用")
+}
+
 func (s *Service) requireActiveTaskOwner(userID string) (*model.User, error) {
 	user, err := s.repo.User(userID)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -46,40 +49,31 @@ func (s *Service) requireActiveTaskOwner(userID string) (*model.User, error) {
 	return user, nil
 }
 
-func (s *Service) requireFixedChannelMember(userID string) error {
-	if userID == "" {
-		return Forbidden("固定渠道仅对公司成员开放")
-	}
-	user, err := s.requireActiveTaskOwner(userID)
-	if err != nil {
-		return err
-	}
-	if user.Role != model.UserRoleUser {
-		return Forbidden("固定渠道仅对公司成员开放")
-	}
-	member, err := s.repo.CompanyMemberByUserID(userID)
-	if errors.Is(err, gorm.ErrRecordNotFound) || (err == nil && member == nil) {
-		return Forbidden("固定渠道仅对公司成员开放")
-	}
-	return err
-}
-
 func (s *Service) requireChannelEligibility(access *userGroupAccess, channel model.ModelChannel) error {
 	if err := access.requireChannel(channel.ID); err != nil {
 		return err
 	}
 	if channel.CredentialSource == model.ChannelCredentialSourceUser {
+		if access.teamWorkspace {
+			return fixedChannelTeamUnavailable()
+		}
 		if !access.group.AllChannels && !access.group.channels[channel.ID] {
 			return ModelCatalogMismatch("当前账号分组无权使用该模型，请刷新后重新选择")
 		}
-		return s.requireFixedChannelMember(access.userID)
+		if access.userID == "" {
+			return Unauthorized("请先登录")
+		}
 	}
 	return nil
 }
 
-func (s *Service) requireFixedTaskCredential(userID string, input map[string]any) error {
+func taskSelectedSystemChannelID(input map[string]any) string {
 	config, _ := input["config"].(map[string]any)
-	channelID := firstNonEmpty(stringValue(config["channelId"]), systemChannelIDFromBaseURL(stringValue(config["baseUrl"])))
+	return firstNonEmpty(stringValue(config["channelId"]), systemChannelIDFromBaseURL(stringValue(config["baseUrl"])))
+}
+
+func (s *Service) requireFixedTaskCredential(userID string, input map[string]any) error {
+	channelID := taskSelectedSystemChannelID(input)
 	if channelID == "" {
 		return nil
 	}
@@ -103,6 +97,9 @@ func (s *Service) fixedChannelCredential(userID, channelID string) (*model.UserC
 }
 
 func (s *Service) fixedChannelAPIKey(userID string, channel *model.ModelChannel) (string, error) {
+	if _, team := model.TeamIDFromContentKey(userID); team {
+		return "", fixedChannelTeamUnavailable()
+	}
 	user, err := s.requireActiveTaskOwner(userID)
 	if err != nil {
 		return "", err
@@ -128,10 +125,11 @@ func (s *Service) FixedChannels(user *model.User) (*FixedChannelList, error) {
 	if user == nil {
 		return nil, Unauthorized("请先登录")
 	}
-	if err := s.requireFixedChannelMember(user.ID); err != nil {
+	activeUser, err := s.requireActiveTaskOwner(user.ID)
+	if err != nil {
 		return nil, err
 	}
-	access, err := s.userGroupAccess(user.ID)
+	access, err := s.userGroupAccessForUser(activeUser)
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +163,11 @@ func (s *Service) SaveFixedChannelCredential(user *model.User, channelID, apiKey
 	if user == nil {
 		return nil, Unauthorized("请先登录")
 	}
-	access, err := s.userGroupAccess(user.ID)
+	activeUser, err := s.requireActiveTaskOwner(user.ID)
+	if err != nil {
+		return nil, err
+	}
+	access, err := s.userGroupAccessForUser(activeUser)
 	if err != nil {
 		return nil, err
 	}
@@ -200,34 +202,4 @@ func (s *Service) DeleteFixedChannelCredential(user *model.User, channelID strin
 	}
 	// Revocation stays available after a channel is disabled or group access is removed.
 	return s.repo.DeleteUserChannelCredential(user.ID, channelID)
-}
-
-func (s *Service) fixedChannelGroupCodeAuthorized(repo *repository.Repository, code string) (bool, error) {
-	channels, err := repo.SystemChannels(false)
-	if err != nil {
-		return false, err
-	}
-	fixed := make(map[string]bool)
-	for _, channel := range channels {
-		if channel.CredentialSource == model.ChannelCredentialSourceUser {
-			fixed[channel.ID] = true
-		}
-	}
-	if len(fixed) == 0 {
-		return true, nil
-	}
-	group, err := repo.UserGroupByCode(normalizeUserGroupCode(code))
-	if err != nil || group.AllChannels {
-		return err == nil, err
-	}
-	bindings, err := repo.UserGroupChannels()
-	if err != nil {
-		return false, err
-	}
-	for _, binding := range bindings {
-		if binding.GroupID == group.ID && fixed[binding.ChannelID] {
-			return true, nil
-		}
-	}
-	return false, nil
 }

@@ -75,35 +75,10 @@ func (r *Repository) TotalCreditBalance() (int64, error) {
 }
 
 // group 为空表示不过滤；default 分组同时匹配未分配分组（空编码）的用户。
-type AdminUserRecord struct {
-	model.User
-	UserCompany
-}
-
-type UserCompany struct {
-	CompanyName   string                  `json:"companyName,omitempty"`
-	CompanyRole   model.CompanyMemberRole `json:"companyRole,omitempty"`
-	CompanyStatus model.UserStatus        `json:"companyStatus,omitempty"`
-}
-
-func (r *Repository) AdminUsers(keyword string, role model.UserRole, status model.UserStatus, group, companyID, companyRole string, excludeEmployees bool, limit int, offset int) ([]AdminUserRecord, int64, error) {
-	var users []AdminUserRecord
+func (r *Repository) AdminUsers(keyword string, role model.UserRole, status model.UserStatus, group string, limit int, offset int) ([]model.User, int64, error) {
+	var users []model.User
 	var total int64
-	query := r.db.Model(&model.User{}).
-		Joins("LEFT JOIN company_members AS m ON m.user_id = users.id").
-		Joins("LEFT JOIN companies AS c ON c.id = m.company_id")
-	if excludeEmployees {
-		query = query.Where("(m.role IS NULL OR m.role <> ? OR users.role = ?)", model.CompanyMemberRoleEmployee, model.UserRoleAdmin)
-	}
-	if companyID != "" {
-		query = query.Where("m.company_id = ?", companyID)
-	}
-	switch companyRole {
-	case "none":
-		query = query.Where("m.user_id IS NULL")
-	case "admin", "employee":
-		query = query.Where("m.role = ?", companyRole)
-	}
+	query := r.db.Model(&model.User{})
 	if value := strings.TrimSpace(group); value == model.DefaultUserGroupCode {
 		query = query.Where("user_group = ? OR user_group = ''", value)
 	} else if value != "" {
@@ -114,16 +89,15 @@ func (r *Repository) AdminUsers(keyword string, role model.UserRole, status mode
 		query = query.Where("lower(username) LIKE ? OR lower(display_name) LIKE ? OR lower(email) LIKE ?", pattern, pattern, pattern)
 	}
 	if role == model.UserRoleAdmin || role == model.UserRoleUser {
-		query = query.Where("users.role = ?", role)
+		query = query.Where("role = ?", role)
 	}
 	if status == model.UserStatusActive || status == model.UserStatusDisabled {
-		query = query.Where("users.status = ?", status)
+		query = query.Where("status = ?", status)
 	}
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	if err := query.Select("users.*, c.name AS company_name, m.role AS company_role, c.status AS company_status").
-		Order("users.created_at desc, users.id").Limit(limit).Offset(offset).Scan(&users).Error; err != nil {
+	if err := query.Order("created_at desc, id").Limit(limit).Offset(offset).Find(&users).Error; err != nil {
 		return nil, 0, err
 	}
 	return users, total, nil

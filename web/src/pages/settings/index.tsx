@@ -1,13 +1,14 @@
 import { App, Button } from "antd";
-import { ArrowLeft, Boxes, Bug, Building2, Cloud, Inbox, KeyRound, MessageSquareText, RadioTower, ShieldCheck, SlidersHorizontal, UserRound, Workflow, BookMarked } from "lucide-react";
+import { ArrowLeft, Boxes, Bug, Cloud, Inbox, KeyRound, MessageSquareText, RadioTower, ShieldCheck, SlidersHorizontal, UserRound, Workflow, BookMarked } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useTranslation } from "react-i18next";
 
 import { UserOSSSettingsForm } from "@/components/layout/user-oss-settings-form";
 import { secretKeyProtocolIds, useUserProtocolCatalog } from "@/hooks/use-user-protocol-catalog";
 import { refreshSystemChannels } from "@/lib/user-session";
+import { workspaceTeamId } from "@/lib/workspace-routes";
 import { useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { ChannelSettingsPane, channelValidationError, focusInvalidChannelField, isChannelReady } from "./channel-settings-pane";
@@ -15,7 +16,7 @@ import { ModelDefaultGrid } from "./model-default-grid";
 import { PromptPreferencesPane } from "./prompt-preferences-pane";
 import DiagnosticsPanel from "./diagnostics-panel";
 import AgentMemoryPane from "./agent-memory-pane";
-import { RunningHubSettingsPane } from "./runninghub-settings-pane";
+const RunningHubSettingsPane = lazy(() => import("./runninghub-settings-pane").then((module) => ({ default: module.RunningHubSettingsPane })));
 import { RUNNINGHUB_PLUGIN_ID } from "@/lib/plugins/builtin/workflows";
 import { usePluginStore } from "@/stores/use-plugin-store";
 import { ProfilePane } from "./profile-pane";
@@ -23,18 +24,16 @@ import { FeedbackInboxPane } from "./feedback-inbox-pane";
 import { ArkAssetsPane } from "./ark-assets-pane";
 import { PreferencesPane } from "./preferences-pane";
 import { arkPortraitOverviewQueryKey, getArkPortraitOverview } from "@/services/api/ark-portraits";
-import { getCompanyMembership } from "@/services/api/company";
-import { CompanyMembersPane } from "./company-members-pane";
 import { FixedChannelsPane } from "./fixed-channels-pane";
 import "./settings-page.css";
 
-type ConfigSectionKey = "profile" | "channels" | "fixed-channels" | "company-members" | "models" | "runninghub" | "preferences" | "prompts" | "agent-memory" | "storage" | "ark-assets" | "diagnostics" | "feedbacks";
-type ConfigSectionGroup = "general" | "creation" | "company" | "integrations" | "support";
+type ConfigSectionKey = "profile" | "channels" | "fixed-channels" | "models" | "runninghub" | "preferences" | "prompts" | "agent-memory" | "storage" | "ark-assets" | "diagnostics" | "feedbacks";
+type ConfigSectionGroup = "general" | "creation" | "integrations" | "support";
 
-const configSectionGroups: ConfigSectionGroup[] = ["general", "creation", "company", "integrations", "support"];
+const configSectionGroups: ConfigSectionGroup[] = ["general", "creation", "integrations", "support"];
 
 /**
- * 分类按用途分组：账户与通用 → 创作 → 公司 → 渠道与存储 → 帮助与反馈。
+ * 分类按用途分组：账户与通用 → 创作 → 渠道与存储 → 帮助与反馈。
  * 分组名在 settings.groups.<group>，分类名称与说明在 settings.sections.<key>。
  */
 const configSections: Array<{ key: ConfigSectionKey; group: ConfigSectionGroup; icon: ReactNode }> = [
@@ -43,7 +42,6 @@ const configSections: Array<{ key: ConfigSectionKey; group: ConfigSectionGroup; 
     { key: "models", group: "creation", icon: <Boxes className="size-4" /> },
     { key: "prompts", group: "creation", icon: <MessageSquareText className="size-4" /> },
     { key: "agent-memory", group: "creation", icon: <BookMarked className="size-4" /> },
-    { key: "company-members", group: "company", icon: <Building2 className="size-4" /> },
     { key: "channels", group: "integrations", icon: <RadioTower className="size-4" /> },
     { key: "fixed-channels", group: "integrations", icon: <KeyRound className="size-4" /> },
     { key: "runninghub", group: "integrations", icon: <Workflow className="size-4" /> },
@@ -74,8 +72,7 @@ export default function SettingsPage() {
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const shouldPromptContinue = searchParams.get("continue") === "1";
     const userId = useUserStore((state) => state.user?.id);
-    const membershipQuery = useQuery({ queryKey: ["company-membership", userId], queryFn: ({ signal }) => getCompanyMembership(signal), enabled: Boolean(userId) });
-    const company = membershipQuery.data?.company;
+    const fixedChannelsVisible = Boolean(userId && !workspaceTeamId);
     const userChannels = config.channels.filter((channel) => channel.scope !== "system");
     const protocolCatalog = useUserProtocolCatalog(customChannelsEnabled);
     const secretKeyProtocols = useMemo(() => secretKeyProtocolIds(protocolCatalog), [protocolCatalog]);
@@ -87,9 +84,8 @@ export default function SettingsPage() {
             (customChannelsEnabled ? configSections : configSections.filter((section) => section.key !== "channels"))
                 .filter((section) => section.key !== "runninghub" || runningHubPluginEnabled)
                 .filter((section) => section.key !== "ark-assets" || arkAssetsVisible)
-                .filter((section) => section.key !== "company-members" || company?.isAdmin)
-                .filter((section) => section.key !== "fixed-channels" || company),
-        [arkAssetsVisible, company, customChannelsEnabled, runningHubPluginEnabled],
+                .filter((section) => section.key !== "fixed-channels" || fixedChannelsVisible),
+        [arkAssetsVisible, fixedChannelsVisible, customChannelsEnabled, runningHubPluginEnabled],
     );
 
     const isVisibleConfigSection = (value: string | null): value is ConfigSectionKey => isConfigSection(value) && visibleConfigSections.some((section) => section.key === value);
@@ -150,12 +146,7 @@ export default function SettingsPage() {
                 <ChannelSettingsPane onOpenModels={() => selectSection("models")} onOpenRunningHub={runningHubPluginEnabled ? () => selectSection("runninghub") : undefined} />
             </SettingsPane>
         ),
-        "company-members": company?.isAdmin && (
-            <SettingsPane>
-                <CompanyMembersPane key={userId} />
-            </SettingsPane>
-        ),
-        "fixed-channels": company && (
+        "fixed-channels": fixedChannelsVisible && (
             <SettingsPane>
                 <FixedChannelsPane key={userId} />
             </SettingsPane>
@@ -173,11 +164,13 @@ export default function SettingsPage() {
                 </div>
             </SettingsPane>
         ),
-        runninghub: (
+        runninghub: runningHubPluginEnabled ? (
             <SettingsPane>
-                <RunningHubSettingsPane />
+                <Suspense fallback={<span role="status">正在加载工作流配置…</span>}>
+                    <RunningHubSettingsPane />
+                </Suspense>
             </SettingsPane>
-        ),
+        ) : null,
         preferences: (
             <SettingsPane>
                 <PreferencesPane />
@@ -248,11 +241,11 @@ export default function SettingsPage() {
                             return (
                                 <div key={group} className="settings-nav-group contents md:block md:space-y-1" role="group" aria-labelledby={`settings-nav-group-${group}`}>
                                     <p id={`settings-nav-group-${group}`} className="settings-nav-group-label hidden md:block">
-                                        {t(group === "company" ? "company.group" : `settings.groups.${group}`)}
+                                        {t(`settings.groups.${group}`)}
                                     </p>
                                     {items.map((item) => {
                                         const selected = item.key === activeTab;
-                                        const translationKey = item.key === "company-members" || item.key === "fixed-channels" ? `company.${item.key}` : `settings.sections.${item.key}`;
+                                        const translationKey = `settings.sections.${item.key}`;
                                         return (
                                             <button
                                                 key={item.key}

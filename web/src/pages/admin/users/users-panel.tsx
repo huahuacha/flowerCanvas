@@ -1,5 +1,4 @@
 import { App, Button, Dropdown } from "antd";
-import { useQuery } from "@tanstack/react-query";
 import { Checkbox } from "@/pages/admin/ui/controls";
 import { Ban, Crown, Search, Settings2, UserPlus } from "lucide-react";
 import { Link } from "react-router";
@@ -9,7 +8,6 @@ import { PaginationBar } from "@/pages/admin/components/admin-ui";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { bulkDisableAdminUsers, deleteAdminUser, listAdminUsers, updateAdminUser, type AdminUser, type LocalUser } from "@/services/api/auth";
 import { listAdminUserGroups, type UserGroup } from "@/services/api/user-groups";
-import { listAdminCompanies } from "@/services/api/company";
 import { useUserStore } from "@/stores/use-user-store";
 import { AdminBatchBar, AdminDataTable, AdminTableEmpty } from "../components/admin-ui";
 import { useTableUrlState } from "../lib/use-table-url-state";
@@ -29,7 +27,6 @@ export default function UsersPanel({ onUserChanged }: { onUserChanged?: (user: L
     const actor = useUserStore((state) => state.user);
     const { message, modal } = App.useApp();
     const { state, update } = useTableUrlState();
-    const companies = useQuery({ queryKey: ["admin-companies", actor?.id], queryFn: ({ signal }) => listAdminCompanies(signal), enabled: Boolean(actor?.id) });
     const debouncedFilter = useDebouncedValue(state.filter);
     const [users, setUsers] = useState<AdminUser[]>([]);
     const [total, setTotal] = useState(0);
@@ -54,7 +51,7 @@ export default function UsersPanel({ onUserChanged }: { onUserChanged?: (user: L
         }
     });
     const requestSequence = useRef(0);
-    const hasFilters = Boolean(state.filter || state.role !== "all" || state.status !== "all" || state.group !== "all" || state.companyId || state.companyRole !== "all");
+    const hasFilters = Boolean(state.filter || state.role !== "all" || state.status !== "all" || state.group !== "all");
     const detailIndex = detailUserId ? users.findIndex((user) => user.id === detailUserId) : -1;
     const previousUserId = detailIndex > 0 ? users[detailIndex - 1]?.id : undefined;
     const nextUserId = detailIndex >= 0 && detailIndex < users.length - 1 ? users[detailIndex + 1]?.id : undefined;
@@ -76,8 +73,6 @@ export default function UsersPanel({ onUserChanged }: { onUserChanged?: (user: L
         setUsers([]);
         setTotal(0);
         void listAdminUsers({
-            companyId: state.companyId || undefined,
-            companyRole: state.companyRole === "all" ? undefined : state.companyRole,
             keyword: debouncedFilter || undefined,
             role: state.role === "all" ? undefined : state.role,
             status: state.status === "all" ? undefined : state.status,
@@ -101,7 +96,7 @@ export default function UsersPanel({ onUserChanged }: { onUserChanged?: (user: L
             .finally(() => {
                 if (sequence === requestSequence.current) setLoading(false);
             });
-    }, [debouncedFilter, message, retry, state.companyId, state.companyRole, state.group, state.page, state.pageSize, state.role, state.status, update]);
+    }, [debouncedFilter, message, retry, state.group, state.page, state.pageSize, state.role, state.status, update]);
 
     const replaceUser = useCallback(
         (nextUser: LocalUser) => {
@@ -159,7 +154,7 @@ export default function UsersPanel({ onUserChanged }: { onUserChanged?: (user: L
         [actor?.id, groups, toggleStatus, visibleColumns],
     );
 
-    const resetFilters = () => update({ filter: "", role: "all", status: "all", group: "all", companyId: "", companyRole: "all", page: 1 });
+    const resetFilters = () => update({ filter: "", role: "all", status: "all", group: "all", page: 1 });
 
     const bulkDisable = () => {
         modal.confirm({
@@ -204,25 +199,6 @@ export default function UsersPanel({ onUserChanged }: { onUserChanged?: (user: L
                 onReset={resetFilters}
                 toolbarFilters={
                     <>
-                        <Select
-                            ariaLabel="筛选所属公司"
-                            className="w-36"
-                            value={state.companyId}
-                            options={[{ value: "", label: "全部公司" }, ...(companies.data?.companies ?? []).map((company) => ({ value: company.id, label: company.name }))]}
-                            onChange={(companyId) => update({ companyId, companyRole: state.companyRole === "none" ? "all" : state.companyRole, page: 1 })}
-                        />
-                        <Select
-                            ariaLabel="筛选公司身份"
-                            className="w-36"
-                            value={state.companyRole}
-                            options={[
-                                { value: "all", label: "全部公司身份" },
-                                { value: "admin", label: "公司管理员" },
-                                { value: "employee", label: "公司员工" },
-                                { value: "none", label: "未加入公司" },
-                            ]}
-                            onChange={(companyRole: typeof state.companyRole) => update({ companyRole, ...(companyRole === "none" ? { companyId: "" } : {}), page: 1 })}
-                        />
                         <Select
                             aria-label="筛选用户角色"
                             className="w-32"

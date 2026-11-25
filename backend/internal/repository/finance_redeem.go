@@ -12,7 +12,21 @@ import (
 	"yingce/backend/internal/model"
 )
 
+var ErrCreditBalanceLimit = errors.New("个人积分余额超出上限")
+
 func (r *Repository) AdjustCredits(userID string, actorUserID string, amount int64, note string) (*model.CreditAccount, error) {
+	entryType := model.CreditLedgerAdminAdjust
+	if amount > 0 {
+		entryType = model.CreditLedgerAdminGrant
+	}
+	return r.adjustCredits(userID, actorUserID, amount, note, entryType)
+}
+
+func (r *Repository) AdjustPersonalCredits(userID string, amount int64, note string) (*model.CreditAccount, error) {
+	return r.adjustCredits(userID, userID, amount, note, model.CreditLedgerSelfAdjust)
+}
+
+func (r *Repository) adjustCredits(userID string, actorUserID string, amount int64, note string, entryType model.CreditLedgerType) (*model.CreditAccount, error) {
 	var account model.CreditAccount
 	err := r.db.Transaction(func(tx *gorm.DB) error {
 		account = model.CreditAccount{UserID: userID}
@@ -20,8 +34,12 @@ func (r *Repository) AdjustCredits(userID string, actorUserID string, amount int
 			return err
 		}
 		accountQuery := tx.Model(&model.CreditAccount{}).Where("user_id = ?", userID)
+		boundedIncrease := entryType == model.CreditLedgerSelfAdjust && amount > 0
 		if amount < 0 {
 			accountQuery = accountQuery.Where("available_microcredits + ? >= 0", amount)
+		} else if boundedIncrease {
+			// 预留积分可能退回可用余额，必须计入总额上限。
+			accountQuery = accountQuery.Where("available_microcredits <= ? - reserved_microcredits", model.MaxPersonalCreditBalance-amount)
 		}
 		updated := accountQuery.
 			Updates(map[string]any{
@@ -33,14 +51,13 @@ func (r *Repository) AdjustCredits(userID string, actorUserID string, amount int
 			return updated.Error
 		}
 		if updated.RowsAffected != 1 {
+			if boundedIncrease {
+				return ErrCreditBalanceLimit
+			}
 			return ErrInsufficientCredits
 		}
 		if err := tx.First(&account, "user_id = ?", userID).Error; err != nil {
 			return err
-		}
-		entryType := model.CreditLedgerAdminAdjust
-		if amount > 0 {
-			entryType = model.CreditLedgerAdminGrant
 		}
 		return tx.Create(&model.CreditLedgerEntry{
 			ID:                         newRepositoryID(),

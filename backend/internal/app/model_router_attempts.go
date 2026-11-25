@@ -29,6 +29,7 @@ func (s *Service) createRouteAttempt(task *model.Task, routed *RoutedModel, atte
 		return nil, err
 	}
 	attempt := &model.RouteAttempt{ID: id, TaskID: task.ID, RouteRun: task.RouteRun, AttemptNumber: attemptNumber, LogicalModelID: routed.LogicalModel.ID, LogicalModelRevisionID: routed.Revision.ID, RouteID: routed.Route.ID, ChannelModelID: channelModel.ID, ChannelID: channelModel.ChannelID, Status: "selected", DispatchState: "not_sent", StartedAt: time.Now()}
+	attempt.ProtocolBindingJSON = task.ProtocolBindingJSON
 	if err := s.repo.CreateRouteAttempt(attempt); err != nil {
 		return nil, err
 	}
@@ -86,6 +87,9 @@ func (s *Service) beginTaskRouteAttempt(task *model.Task) (*model.RouteAttempt, 
 	}
 	routed, routeErr := s.routedModelForTaskSelection(task)
 	if routeErr != nil {
+		if task.ProtocolBindingJSON != "" {
+			return nil, routeErr
+		}
 		return s.switchTaskToNextRoute(task, attempts)
 	}
 	return s.createRouteAttempt(task, routed, len(attempts)+1)
@@ -144,6 +148,9 @@ func (s *Service) routedModelForTaskSelection(task *model.Task) (*RoutedModel, e
 	if revision.LogicalModelID != logicalModel.ID {
 		return nil, errors.New("任务前台模型版本不一致")
 	}
+	if task.ProtocolBindingJSON != "" {
+		return &RoutedModel{LogicalModel: *logicalModel, Revision: *revision, Route: *route, ChannelModel: *channelModel}, nil
+	}
 	productSpec, err := DecodeCapabilitySpec(revision.CapabilitySpecJSON)
 	if err != nil {
 		return nil, err
@@ -175,6 +182,15 @@ func (s *Service) switchTaskToNextRoute(task *model.Task, attempts []model.Route
 	var input map[string]any
 	if err := json.Unmarshal([]byte(decrypted), &input); err != nil {
 		return nil, BadAuthRequest("任务输入格式无效，无法恢复模型服务")
+	}
+	if channelID := taskSelectedSystemChannelID(input); channelID != "" {
+		source, err := s.repo.HistoricalSystemChannelCredentialSource(channelID)
+		if err != nil {
+			return nil, err
+		}
+		if source == model.ChannelCredentialSourceUser {
+			return nil, BadAuthRequest("固定渠道任务不能切换渠道")
+		}
 	}
 	logicalModel, err := s.repo.LogicalModel(task.LogicalModelID)
 	if err != nil {
@@ -244,10 +260,15 @@ func (s *Service) switchTaskToNextRoute(task *model.Task, attempts []model.Route
 	for _, attempt := range attempts {
 		tried[attempt.RouteID] = true
 	}
-	access, err := s.userGroupAccess(task.UserID)
+	actorID, err := s.taskModelActor(task)
 	if err != nil {
 		return nil, err
 	}
+	access, err := s.userGroupAccess(actorID)
+	if err != nil {
+		return nil, err
+	}
+	_, access.teamWorkspace = model.TeamIDFromContentKey(task.UserID)
 	eligible := s.eligibleLogicalRoutes(access, candidates, intent, tried, logicalModel.PricePolicy == "channel")
 	if len(eligible) == 0 {
 		return nil, BadAuthRequest("当前模型暂时无法满足这组输入和参数")
@@ -263,6 +284,10 @@ func (s *Service) switchTaskToNextRoute(task *model.Task, attempts []model.Route
 	routed := &RoutedModel{LogicalModel: *logicalModel, Revision: *revision, Route: selected.Route, ChannelModel: selected.ChannelModel, CapabilitySpec: selected.CapabilitySpec, PriceTier: priceTier, Defaults: defaults, Intent: intent}
 	nextInput := applyRoutedProviderSelection(input, routed)
 	if err := s.requireFixedTaskCredential(task.UserID, nextInput); err != nil {
+		return nil, err
+	}
+	binding, err := s.captureTaskProtocolBinding(nextInput, &selected.ChannelModel)
+	if err != nil {
 		return nil, err
 	}
 	if err := s.ValidateTaskCapability(nextInput); err != nil {
@@ -288,7 +313,7 @@ func (s *Service) switchTaskToNextRoute(task *model.Task, attempts []model.Route
 		if loadErr != nil {
 			return nil, loadErr
 		}
-		replacement, err = s.newBillingOrderWithPriceTierAt(current.CreatedAt, task.UserID, task.ID, "route-switch:"+task.ID+":"+selected.Route.ID, selected.ChannelModel.ChannelID, selected.ChannelModel.ModelKey, capability, firstNonEmpty(strings.TrimSpace(task.Operation), task.Type), requestedBillingQuantity(capability, config), s.estimateTaskBilling(task.UserID, nextInput, capability), strings.TrimSpace(priceTierID), intent)
+		replacement, err = s.newBillingOrderWithPriceTierAt(current.CreatedAt, actorID, task.ID, "route-switch:"+task.ID+":"+selected.Route.ID, selected.ChannelModel.ChannelID, selected.ChannelModel.ModelKey, capability, firstNonEmpty(strings.TrimSpace(task.Operation), task.Type), requestedBillingQuantity(capability, config), s.estimateTaskBilling(actorID, nextInput, capability), strings.TrimSpace(priceTierID), intent)
 		if err != nil {
 			return nil, err
 		}
@@ -303,7 +328,7 @@ func (s *Service) switchTaskToNextRoute(task *model.Task, attempts []model.Route
 		capability := selected.ChannelModel.Capability
 		snapshotCreditCost(&costOrder, channelModelPriceTierForIntent(selected.ChannelModel, intent, selected.CapabilitySpec), requestedBillingQuantity(capability, config), estimateTaskBillingTokens(nextInput, capability))
 	}
-	if err := s.repo.SwitchTaskLogicalRoute(task.ID, previousRouteID, selected.Route.ID, string(encoded), task.BillingOrderID, selected.ChannelModel.ChannelID, selected.ChannelModel.ID, replacement, costOrder.BillingCostSnapshot); err != nil {
+	if err := s.repo.SwitchTaskLogicalRoute(task.ID, previousRouteID, selected.Route.ID, string(encoded), task.BillingOrderID, selected.ChannelModel.ChannelID, selected.ChannelModel.ID, replacement, costOrder.BillingCostSnapshot, binding); err != nil {
 		if errors.Is(err, repository.ErrInsufficientCredits) {
 			return nil, BadAuthRequest("模型服务价格发生变化，当前积分余额不足")
 		}
@@ -313,6 +338,7 @@ func (s *Service) switchTaskToNextRoute(task *model.Task, attempts []model.Route
 		return nil, err
 	}
 	task.RouteID = selected.Route.ID
+	task.ProtocolBindingJSON = binding
 	task.ChannelModelID = selected.ChannelModel.ID
 	task.InputJSON = string(encoded)
 	task.ProviderRequestID = ""
@@ -325,6 +351,16 @@ func (s *Service) nextRouteAttemptAfterFailure(task *model.Task, attempt *model.
 	}
 	if errors.Is(taskErr, context.Canceled) || errors.Is(taskErr, context.DeadlineExceeded) {
 		return nil, nil
+	}
+	if attempt.ChannelID != "" {
+		source, err := s.repo.HistoricalSystemChannelCredentialSource(attempt.ChannelID)
+		if err != nil {
+			return nil, err
+		}
+		// A user's Key or quota failure must not affect routing for anyone else.
+		if source == model.ChannelCredentialSourceUser {
+			return nil, nil
+		}
 	}
 	s.blockLogicalRouteForFailure(attempt, taskErr)
 	attempts, err := s.repo.RouteAttempts(task.ID, task.RouteRun)
@@ -372,15 +408,28 @@ func (s *Service) prepareLogicalTaskRetry(task *model.Task, input map[string]any
 	if task == nil || task.LogicalModelID == "" {
 		return nil
 	}
+	channelID := taskSelectedSystemChannelID(input)
+	var fixedChannel bool
+	if channelID != "" {
+		source, err := s.repo.HistoricalSystemChannelCredentialSource(channelID)
+		if err != nil {
+			return err
+		}
+		fixedChannel = source == model.ChannelCredentialSourceUser
+		if fixedChannel {
+			if err := s.requireFixedTaskCredential(task.UserID, input); err != nil {
+				return err
+			}
+		}
+	}
 	intent := ModelRequestIntentFromTaskInput(input, task.Type, task.Operation)
 	logicalModel, err := s.repo.LogicalModel(task.LogicalModelID)
 	if err != nil {
 		return err
 	}
 	var routed *RoutedModel
-	if logicalModel.ArchivedAt != nil {
-		// 归档只隐藏新任务的公开目录；历史任务重试必须使用任务快照，不能重新从公开目录选路。
-		routed, err = s.resolveArchivedTaskRoute(task, intent)
+	if fixedChannel || logicalModel.ArchivedAt != nil {
+		routed, err = s.resolveTaskRouteSnapshot(task, logicalModel, intent)
 	} else {
 		var access *userGroupAccess
 		if access, err = s.userGroupAccess(task.UserID); err != nil {
@@ -391,7 +440,22 @@ func (s *Service) prepareLogicalTaskRetry(task *model.Task, input map[string]any
 	if err != nil {
 		return err
 	}
+	if fixedChannel {
+		if routed.ChannelModel.ChannelID != channelID {
+			return BadAuthRequest("固定渠道任务不能切换渠道")
+		}
+		if logicalModel.PricePolicy == "channel" {
+			routed.PriceTier = channelModelPriceTierForIntent(routed.ChannelModel, routed.Intent, routed.CapabilitySpec)
+			if routed.PriceTier == nil {
+				return BadAuthRequest("历史任务原模型未配置所选规格的价格")
+			}
+		}
+	}
 	input = applyRoutedProviderSelection(input, routed)
+	task.ProtocolBindingJSON, err = s.captureTaskProtocolBinding(input, &routed.ChannelModel)
+	if err != nil {
+		return err
+	}
 	if err := s.ValidateTaskCapability(input); err != nil {
 		return err
 	}
@@ -411,18 +475,10 @@ func (s *Service) prepareLogicalTaskRetry(task *model.Task, input map[string]any
 	return nil
 }
 
-// resolveArchivedTaskRoute 恢复归档模型任务保存的 revision、route 和 channel model 快照。
-// 归档模型不得重新进入公开路由目录；原供应线路失效时应明确拒绝重试，避免静默切换到未知配置。
-func (s *Service) resolveArchivedTaskRoute(task *model.Task, intent ModelRequestIntent) (*RoutedModel, error) {
+// resolveTaskRouteSnapshot pins retries for archived models and personal fixed channels.
+func (s *Service) resolveTaskRouteSnapshot(task *model.Task, logicalModel *model.LogicalModel, intent ModelRequestIntent) (*RoutedModel, error) {
 	if task == nil || task.LogicalModelID == "" || task.LogicalModelRevisionID == "" || task.RouteID == "" || task.ChannelModelID == "" {
 		return nil, BadAuthRequest("历史任务缺少完整的模型服务快照，无法重试")
-	}
-	logicalModel, err := s.repo.LogicalModel(task.LogicalModelID)
-	if err != nil {
-		return nil, err
-	}
-	if logicalModel.ArchivedAt == nil {
-		return nil, BadAuthRequest("任务模型已恢复为可用模型，请重新选择后重试")
 	}
 	revision, err := s.repo.LogicalModelRevision(task.LogicalModelRevisionID)
 	if err != nil || revision.LogicalModelID != logicalModel.ID {

@@ -93,6 +93,22 @@ func (s *Service) CreateSystemChannel(actor *model.User, req ChannelRequest) (*P
 	if err := s.RequireAdmin(actor); err != nil {
 		return nil, err
 	}
+	if req.WebsiteID != "" {
+		if req.Enabled == nil {
+			disabled := false
+			req.Enabled = &disabled
+		}
+		website, siteErr := s.repo.ChannelWebsite(req.WebsiteID)
+		if siteErr != nil {
+			return nil, siteErr
+		}
+		req.BaseURL, req.APIFormat, req.ProxyURL = website.BaseURL, &website.APIFormat, &website.ProxyURL
+		public, parseErr := ParseOutboundHeadersJSON(website.HeadersJSON)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		req.Headers = mergeWebsiteHeaders(req.Headers, public)
+	}
 	channelID, err := s.repo.NextPrefixedID("CHANNEL")
 	if err != nil {
 		return nil, err
@@ -101,6 +117,7 @@ func (s *Service) CreateSystemChannel(actor *model.User, req ChannelRequest) (*P
 	if err != nil {
 		return nil, err
 	}
+	channel.WebsiteID = req.WebsiteID
 	if err := s.encryptSystemChannelSecrets(&channel); err != nil {
 		return nil, err
 	}
@@ -236,6 +253,9 @@ func (s *Service) UpdateSystemChannel(actor *model.User, id string, req ChannelR
 	if req.CredentialSource != "" && req.CredentialSource != channelCredentialSource(*channel) {
 		return nil, BadAuthRequest("请新建渠道以使用不同的凭据来源")
 	}
+	if !req.enabledOnly() && (req.ExpectedUpdatedAt.IsZero() || !req.ExpectedUpdatedAt.Equal(channel.UpdatedAt)) {
+		return nil, BadAuthRequest("Key 分组已被修改或缺少编辑版本，请刷新后重新编辑；本次未保存任何修改")
+	}
 	if err := s.decryptSystemChannelSecrets(channel); err != nil {
 		return nil, err
 	}
@@ -248,6 +268,12 @@ func (s *Service) UpdateSystemChannel(actor *model.User, id string, req ChannelR
 	next.UserID = channel.UserID
 	next.Scope = model.ChannelScopeSystem
 	next.CreatedAt = channel.CreatedAt
+	if req.WebsiteID != "" && req.WebsiteID != channel.WebsiteID {
+		return nil, BadAuthRequest("不能通过渠道编辑移动网站归属")
+	}
+	if channel.WebsiteID != "" && !sameWebsiteConnection(*channel, next) {
+		next.WebsiteID = ""
+	}
 	if req.APIKey == "" {
 		next.APIKey = channel.APIKey
 	}
@@ -257,7 +283,10 @@ func (s *Service) UpdateSystemChannel(actor *model.User, id string, req ChannelR
 	if err := s.encryptSystemChannelSecrets(&next); err != nil {
 		return nil, err
 	}
-	if err := s.saveChannelWithMediaTransport(&next, actor.ID, req.MediaTransport, false); err != nil {
+	if err := s.saveChannelWithMediaTransport(&next, actor.ID, req.MediaTransport, false, channel.UpdatedAt); err != nil {
+		if errors.Is(err, repository.ErrTaskStateConflict) {
+			return nil, BadAuthRequest("Key 分组已被修改，请刷新后重新编辑；本次未保存任何修改")
+		}
 		return nil, err
 	}
 	if updateModels {

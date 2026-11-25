@@ -22,7 +22,7 @@ var (
 // Credit balances are serialized to JavaScript clients as JSON numbers.
 // Keeping payment grants within Number.MAX_SAFE_INTEGER preserves exact values
 // across the database, API, and wallet UI.
-const maxPaymentCreditBalance int64 = 9_007_199_254_740_991
+const maxPaymentCreditBalance = model.MaxPersonalCreditBalance
 
 type PaymentEvidence struct {
 	ProviderTradeNo string
@@ -227,6 +227,17 @@ func (r *Repository) ActivePaymentOrderCount(userID string) (int64, error) {
 		model.PaymentOrderCreated, model.PaymentOrderPending, model.PaymentOrderClosing, model.PaymentOrderCreateFailed,
 	}).Count(&count).Error
 	return count, err
+}
+
+func (r *Repository) PaymentOrdersForUser(userID string, limit, offset int) ([]model.PaymentOrder, int64, error) {
+	items := make([]model.PaymentOrder, 0)
+	var total int64
+	query := r.db.Model(&model.PaymentOrder{}).Where("user_id = ?", userID)
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	err := query.Order("created_at desc, id desc").Limit(limit).Offset(offset).Find(&items).Error
+	return items, total, err
 }
 
 func (r *Repository) PaymentOrderCountForProvider(providerID string) (int64, error) {

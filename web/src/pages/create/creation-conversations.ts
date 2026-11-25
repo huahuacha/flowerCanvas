@@ -1,6 +1,7 @@
 import { translate } from "@/i18n";
 import { createClientId } from "@/lib/client-id";
 import { generationErrorMessage } from "@/lib/generation-error";
+import { creationMessageMayHaveExternalVideoResult } from "@/lib/creation-message-recovery";
 import type { BackendGenerationResult } from "@/services/api/generation-task";
 import { resourceIdFromStorageKey } from "@/services/api/resources";
 import type { GenerationTask } from "@/services/api/task-center";
@@ -116,8 +117,8 @@ export async function materializeCreationTaskResults(runtime: CreationRuntime, t
 }
 
 /** 失败但后端没有确认任务失败（含旧版本未分类的失败）：作品可能已生成，应提供“重新获取结果”。 */
-export function creationMessageNeedsResultSync(message: Pick<CreationMessage, "status" | "errorKind" | "taskIds">) {
-    return message.status === "error" && message.errorKind !== "task" && Boolean(message.taskIds?.length);
+export function creationMessageNeedsResultSync(message: Pick<CreationMessage, "status" | "errorKind" | "taskIds"> & Partial<Pick<CreationMessage, "mode" | "error">>) {
+    return message.status === "error" && Boolean(message.taskIds?.length) && (message.errorKind !== "task" || creationMessageMayHaveExternalVideoResult(message));
 }
 
 // 仍需用任务终态来收敛的媒体消息：生成中，或失败但后端没有确认失败。

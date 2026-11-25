@@ -63,6 +63,9 @@ func (s *Service) saveTaskSubmissionCredential(ctx context.Context, userID strin
 }
 
 func (s *Service) applyTaskSubmissionCredential(task model.Task, attempt *model.RouteAttempt, config providerConfig) (providerConfig, error) {
+	if _, team := model.TeamIDFromContentKey(task.UserID); team {
+		return providerConfig{}, fixedChannelTeamUnavailable()
+	}
 	if !strings.HasPrefix(attempt.SubmissionCredentialCipher, encryptedSettingPrefix) {
 		return providerConfig{}, errors.New("固定渠道任务凭据格式无效")
 	}
@@ -76,8 +79,36 @@ func (s *Service) applyTaskSubmissionCredential(task model.Task, attempt *model.
 		strings.TrimSpace(credential.APIKey) == "" || credential.InterfaceType == "" || credential.Model == "" {
 		return providerConfig{}, errors.New("固定渠道任务凭据与原提交记录不一致")
 	}
-	if _, err := ValidateOutboundURL(credential.BaseURL); err != nil {
+	if _, err := ValidateOutboundURLWithProxy(credential.BaseURL, credential.ProxyURL); err != nil {
 		return providerConfig{}, err
+	}
+	config.registry = s.protocolRegistry()
+	if attempt.ProtocolBindingJSON != task.ProtocolBindingJSON {
+		return providerConfig{}, errors.New("固定渠道任务协议与原提交记录不一致")
+	}
+	if attempt.ProtocolBindingJSON != "" {
+		binding, err := decodeTaskProtocolBinding(attempt.ProtocolBindingJSON)
+		if err != nil {
+			return providerConfig{}, err
+		}
+		if binding.ChannelID != credential.ChannelID || binding.ChannelModelID != attempt.ChannelModelID ||
+			binding.ProviderID != credential.InterfaceType || binding.UpstreamModel != credential.Model {
+			return providerConfig{}, errors.New("固定渠道任务协议与原提交记录不一致")
+		}
+		release, err := config.registry.BoundRelease(binding.ProviderID, binding.Digest)
+		if err != nil {
+			return providerConfig{}, err
+		}
+		config.registry, config.pinned, config.releaseWithdrawn = release.Registry, true, !release.Selectable
+	} else if releases := config.registry.Releases(credential.InterfaceType); len(releases) > 0 {
+		if len(releases) != 1 {
+			return providerConfig{}, errors.New("历史任务缺少可核验的插件版本，请核对原始请求")
+		}
+		release, err := config.registry.BoundRelease(credential.InterfaceType, releases[0].SHA256)
+		if err != nil {
+			return providerConfig{}, err
+		}
+		config.registry = release.Registry
 	}
 	config.ChannelID = credential.ChannelID
 	config.BaseURL, config.proxyURL = credential.BaseURL, credential.ProxyURL
@@ -88,8 +119,8 @@ func (s *Service) applyTaskSubmissionCredential(task model.Task, attempt *model.
 }
 
 func (s *Service) resolveSubmittedTaskProviderConfig(task *model.Task, config providerConfig) (providerConfig, error) {
-	if task.ID == "" || (task.LogicalModelID == "" && firstNonEmpty(config.ChannelID, systemChannelIDFromBaseURL(config.BaseURL)) == "") {
-		return s.resolveProviderConfig(config)
+	if task == nil || task.ID == "" || (task.LogicalModelID == "" && firstNonEmpty(config.ChannelID, systemChannelIDFromBaseURL(config.BaseURL)) == "") {
+		return s.resolveTaskProviderConfig(config, task, true)
 	}
 	// A manual retry creates a new route run. Old credentials never follow it.
 	attempt, err := s.repo.LatestRouteAttempt(task.ID)
@@ -99,19 +130,20 @@ func (s *Service) resolveSubmittedTaskProviderConfig(task *model.Task, config pr
 	if attempt != nil && attempt.RouteRun == task.RouteRun && attempt.SubmissionCredentialCipher != "" {
 		return s.applyTaskSubmissionCredential(*task, attempt, config)
 	}
-	return s.resolveProviderConfig(config)
+	return s.resolveTaskProviderConfig(config, task, true)
 }
 
 func (s *Service) resumeFixedChannelTask(ctx context.Context, input canvasGenerationInput) (map[string]interface{}, error) {
 	ctx = withFixedProviderCredential(ctx, input.Config)
+	ctx = withProtocolRegistry(ctx, input.Config.registry)
 	ctx = ensureOfficialProtocolAdapter(ctx, input.Config.InterfaceType)
-	if adapter, ok := declarativeProtocolAdapterForContext(ctx, input.Config.InterfaceType); ok {
+	if adapter, ok := declarativeProtocolAdapterForContext(ctx, input.Config.InterfaceType); ok && adapter.Metadata().Poll != "" {
 		return runProtocolAdapterTask(ctx, input, adapter)
 	}
-	if input.Mode == "video" && s.videoProviderSupportsTaskResume(input.Config.InterfaceType) {
+	if !input.Config.pinned && input.Mode == "video" && input.Config.InterfaceType == string(model.ChannelInterfaceNewAPIChannel2) {
 		return runVideoTask(ctx, input)
 	}
-	if input.Mode == "audio" && input.Config.InterfaceType == string(model.ChannelInterfaceAsyncAudio) {
+	if !input.Config.pinned && input.Mode == "audio" && input.Config.InterfaceType == string(model.ChannelInterfaceAsyncAudio) {
 		return runAudioTask(ctx, input)
 	}
 	return nil, errors.New("当前协议不支持查询原任务")
@@ -168,8 +200,16 @@ type providerNotSubmittedError struct{ error }
 
 func (e providerNotSubmittedError) Unwrap() error { return e.error }
 
-func redactFixedProviderCredential(payload []byte, credential string) []byte {
-	return bytes.ReplaceAll(payload, []byte(credential), []byte("[REDACTED]"))
+func (credential fixedProviderRequestCredential) redactor() *strings.Replacer {
+	quoted, _ := json.Marshal(credential.key)
+	const redacted = "[REDACTED]"
+	return strings.NewReplacer(credential.key, redacted, string(quoted[1:len(quoted)-1]), redacted,
+		url.QueryEscape(credential.key), redacted, url.PathEscape(credential.key), redacted)
+}
+
+func (credential fixedProviderRequestCredential) echoedInIdentifier(value string) bool {
+	// Short keys can occur incidentally inside otherwise valid provider IDs.
+	return credential.key != "" && (value == credential.key || len(credential.key) >= 16 && strings.Contains(value, credential.key))
 }
 
 func redactFixedTextValue(value any, key string) any {

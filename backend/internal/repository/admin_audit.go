@@ -62,9 +62,6 @@ func (r *Repository) BulkDisableUsers(actorID string, userIDs []string, events [
 		if remainingAdmins == 0 {
 			return ErrBulkLastActiveAdmin
 		}
-		if err := New(tx).CheckCompanyUserChanges(userIDs, "", model.UserStatusDisabled); err != nil {
-			return err
-		}
 		if err := tx.Delete(&model.AuthSession{}, "user_id IN ?", userIDs).Error; err != nil {
 			return err
 		}

@@ -24,7 +24,7 @@ func (s *Service) processTask(ctx context.Context, task model.Task) (map[string]
 		return nil, nil, errors.New("视频任务缺少可执行的模型配置")
 	}
 	if task.ProviderRequestID == "" {
-		if _, err := s.requireActiveTaskOwner(task.UserID); err != nil {
+		if err := s.requireActiveTaskActor(&task); err != nil {
 			return nil, nil, providerNotSubmittedError{err}
 		}
 	}

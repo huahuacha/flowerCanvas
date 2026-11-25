@@ -1,3 +1,5 @@
+import { preserveVideoSettings } from "@/lib/media-settings";
+import { MediaSettingsNotice } from "@/components/media-settings-notice";
 import { type ReactNode } from "react";
 import { Switch } from "@/components/ui/base/switch";
 
@@ -7,7 +9,7 @@ import { isVolcengineArkVideoProtocol } from "@/lib/model-protocols";
 import { lumiOptionsForConfig } from "@/lib/lumi-video";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import { formatVideoResolutionLabel, isVideoResolutionMatch, normalizeVideoDuration, videoDimensionsForRatioAndResolution, videoResolutionComparisonKey, VIDEO_DURATION_MIN } from "@/lib/video-generation-options";
-import { modelCapabilityConfigFor, resolveVideoRatioValue, resolveVideoResolutionValue, videoDurationOptions, type VideoCapabilityConfig } from "@/lib/model-capabilities";
+import { modelCapabilityConfigFor, resolveVideoRatioValue, resolveVideoResolutionValue, videoDurationOptions, videoProfileForOperation, type VideoCapabilityConfig } from "@/lib/model-capabilities";
 import { modelOptionName, resolveModelChannel, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import { LumiVideoSettings } from "./lumi-video-settings";
 
@@ -21,6 +23,7 @@ const sizeOptions = [
 ];
 
 type VideoSettingsPanelProps = {
+    operation?: string;
     config: AiConfig;
     onConfigChange: (key: "vquality" | "size" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark" | "videoArkPrivateAssetUpload", value: string) => void;
     onLumiConfigChange?: (value: string) => void;
@@ -29,7 +32,8 @@ type VideoSettingsPanelProps = {
     className?: string;
 };
 
-export function VideoSettingsPanel({ config, onConfigChange, onLumiConfigChange, theme, showTitle = true, className = "w-[292px] space-y-3" }: VideoSettingsPanelProps) {
+export function VideoSettingsPanel(props: VideoSettingsPanelProps) {
+    const { config, onLumiConfigChange, theme, className = "w-[292px] space-y-3" } = props;
     const protocol = resolveModelRequestConfig(config, config.model).interfaceType;
     if (protocol === "lumi-ark-video" && onLumiConfigChange) {
         return (
@@ -40,19 +44,47 @@ export function VideoSettingsPanel({ config, onConfigChange, onLumiConfigChange,
             </ImageSettingsTheme>
         );
     }
-    const profile = modelCapabilityConfigFor(config, config.model).video!;
+    return (
+        <>
+            <MediaSettingsNotice config={props.config} capability="video" onChange={(field, value) => props.onConfigChange(field as Parameters<VideoSettingsPanelProps["onConfigChange"]>[0], value)} />
+            <VideoSettingsControls {...props} />
+        </>
+    );
+}
+
+function VideoSettingsControls({ config, operation, onConfigChange, theme, showTitle = true, className = "w-[292px] space-y-3" }: VideoSettingsPanelProps) {
+    const modelProfile = modelCapabilityConfigFor(config, config.model).video!;
+    const profile = operation ? videoProfileForOperation(modelProfile, operation) : modelProfile;
     const priceTiers = modelPriceTiers(config);
-    if (protocol === "volcengine-jimeng-video") {
+    if (resolveModelRequestConfig(config, config.model).interfaceType === "volcengine-jimeng-video") {
         return <JiMengVideoSettingsPanel config={config} profile={profile} priceTiers={priceTiers} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} />;
     }
     if (isSeedanceVideoConfig(config)) {
         return <SeedanceVideoSettingsPanel config={config} profile={profile} priceTiers={priceTiers} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} />;
     }
 
-    const seconds = normalizeVideoDuration(config.videoSeconds);
-    const resolution = resolveVideoResolutionValue(profile, config.vquality);
-    const ratio = resolveVideoRatioValue(profile, config.size);
-    const dimensions = videoDimensionsForRatioAndResolution(ratio, resolution);
+    return (
+        <VideoProfileControls profile={profile} config={config} protocol={resolveModelRequestConfig(config, config.model).interfaceType} priceTiers={priceTiers} theme={theme} onConfigChange={onConfigChange} showTitle={showTitle} className={className} />
+    );
+}
+
+export function VideoProfileControls({
+    profile,
+    config,
+    protocol,
+    priceTiers = [],
+    theme,
+    onConfigChange,
+    showTitle,
+    className,
+}: Omit<VideoSettingsPanelProps, "config"> & {
+    profile: VideoCapabilityConfig;
+    config: Partial<Pick<AiConfig, "size" | "vquality" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark">>;
+    protocol?: string;
+    priceTiers?: ReturnType<typeof modelPriceTiers>;
+}) {
+    const { seconds, resolution, ratio } = preserveVideoSettings(profile, { seconds: config.videoSeconds, resolution: config.vquality, ratio: config.size }, protocol);
+    const dimensions = resolution === "auto" ? undefined : videoDimensionsForRatioAndResolution(ratio, resolution);
     const sizeSupported = profile.ratios.length > 0;
     const configuredResolutions = profile.resolutions.map((value) => ({ value, label: formatVideoResolutionLabel(value) }));
     const generateAudio = boolConfig(config.videoGenerateAudio, profile.generateAudio.default);
@@ -93,13 +125,14 @@ export function VideoSettingsPanel({ config, onConfigChange, onLumiConfigChange,
                                 <button
                                     key={value}
                                     type="button"
+                                    aria-pressed={ratio === value}
                                     className="flex h-8 cursor-pointer items-center justify-center gap-2 rounded-md px-1 text-[var(--fs-label)] font-medium transition-colors hover:brightness-110 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-1"
                                     style={{ background: ratio === value ? theme.toolbar.activeBg : "transparent", color: theme.node.text, outlineColor: theme.node.muted }}
                                     onMouseDown={(event) => event.stopPropagation()}
                                     onClick={() => onConfigChange("size", value)}
                                 >
                                     <SizePreview width={ratioPreview(value).width} height={ratioPreview(value).height} color={theme.node.text} />
-                                    <span>{value}</span>
+                                    <span>{value === "adaptive" ? "自适应" : value}</span>
                                 </button>
                             ))}
                         </div>
@@ -122,7 +155,7 @@ export function VideoSettingsPanel({ config, onConfigChange, onLumiConfigChange,
 }
 
 function JiMengVideoSettingsPanel({ config, profile, priceTiers, onConfigChange, theme, showTitle, className }: VideoSettingsPanelProps & { profile: VideoCapabilityConfig; priceTiers: ReturnType<typeof modelPriceTiers> }) {
-    const seconds = normalizeVideoDuration(config.videoSeconds);
+    const { seconds, ratio } = preserveVideoSettings(profile, { seconds: config.videoSeconds, ratio: config.size });
     return (
         <ImageSettingsTheme theme={theme}>
             <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
@@ -130,7 +163,7 @@ function JiMengVideoSettingsPanel({ config, profile, priceTiers, onConfigChange,
                 <SettingGroup title="比例" color={theme.node.muted}>
                     <div className="grid grid-cols-3 gap-2">
                         {profile.ratios.map((value) => (
-                            <OptionPill key={value} selected={config.size === value} theme={theme} onClick={() => onConfigChange("size", value)}>
+                            <OptionPill key={value} selected={ratio === value} theme={theme} onClick={() => onConfigChange("size", value)}>
                                 {value}
                             </OptionPill>
                         ))}
@@ -146,9 +179,8 @@ function JiMengVideoSettingsPanel({ config, profile, priceTiers, onConfigChange,
 
 function SeedanceVideoSettingsPanel({ config, profile, priceTiers, onConfigChange, theme, showTitle, className }: VideoSettingsPanelProps & { profile: VideoCapabilityConfig; priceTiers: ReturnType<typeof modelPriceTiers> }) {
     const model = modelOptionName(config.model || config.videoModel);
-    const resolution = normalizeSeedanceResolution(config.vquality, model);
-    const ratio = normalizeSeedanceRatio(config.size);
-    const duration = normalizeSeedanceDuration(config.videoSeconds);
+    const { resolution, ratio, seconds } = preserveVideoSettings(profile, { resolution: config.vquality, ratio: config.size, seconds: config.videoSeconds }, resolveModelRequestConfig(config, config.model || config.videoModel).interfaceType);
+    const duration = Number(seconds);
     const generateAudio = boolConfig(config.videoGenerateAudio, profile.generateAudio.default);
     const watermark = boolConfig(config.videoWatermark, profile.watermark.default);
     const useArkPrivateAssets = boolConfig(config.videoArkPrivateAssetUpload, true);
@@ -216,7 +248,7 @@ function SeedanceVideoSettingsPanel({ config, profile, priceTiers, onConfigChang
 }
 
 export function videoResolutionLabel(value: string) {
-    return formatVideoResolutionLabel(value);
+    return value === "auto" ? "自动" : formatVideoResolutionLabel(value);
 }
 
 export function videoSizeLabel(value: string) {

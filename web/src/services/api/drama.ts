@@ -1,3 +1,4 @@
+import { hasSkillLibraryAccess } from "@/lib/skill-access";
 import { compactApiParams, http } from "@/services/api/request";
 import type { Project } from "@/services/api/projects";
 import type { ThinkingRequest } from "@/lib/text-thinking";
@@ -26,11 +27,13 @@ export type DramaMediaMode = "manual" | "auto";
 
 export type DramaAssetMode = "portrait" | "turnaround" | "fourview" | "custom";
 
-/** 角色/场景参考图方案：保存的是全文提示词，用户看到的就是实际发送的内容。道具参考图使用固定模板。 */
+/** 角色/场景/道具参考图方案：保存的是全文提示词，用户看到的就是实际发送的内容。 */
 export type DramaAssetSettings = {
     mode: DramaAssetMode;
     characterPrompt: string;
     scenePrompt: string;
+    /** 老草稿可能没有这个字段，缺省按默认道具模板。 */
+    propPrompt?: string;
     characterRatio: string;
     /** 角色 / 道具 / 场景参考图的分辨率档位（1k / 1.5k / 2k / 4k）；空串或缺省按该类所用图片模型的默认档位。 */
     resolution?: string;
@@ -50,7 +53,7 @@ export type DramaAssetScheme = {
     characterPrompt: string;
 };
 
-export type DramaAssetSchemeCatalog = { schemes: DramaAssetScheme[]; scenePrompt: string; characterVariables: string[]; sceneVariables: string[] };
+export type DramaAssetSchemeCatalog = { schemes: DramaAssetScheme[]; scenePrompt: string; propPrompt: string; characterVariables: string[]; sceneVariables: string[]; propVariables: string[] };
 
 /** 剧情段怎么切：智能按场景与冲突切、单段不超过模型上限；固定每段 segmentSeconds 秒；范围在 segmentMin–MaxSeconds 之间。 */
 export type DramaSegmentMode = "auto" | "fixed" | "range";
@@ -207,8 +210,14 @@ export type DramaSummary = {
     episodes: DramaEpisodeRow[];
     jobCounts: Partial<Record<"queued" | "running" | "succeeded" | "failed" | "canceled", number>>;
     inbox: DramaInboxItem[];
+    inboxCount: number;
+    inboxFailureCount: number;
     castCount: number;
 };
+
+export function formatDramaInboxCount(n: number): string {
+    return n > 99 ? "99+" : String(n);
+}
 
 export type DramaShot = {
     id: string;
@@ -258,7 +267,7 @@ export type DramaEpisode = {
 
 export type DramaJob = {
     id: string;
-    kind: "bible" | "plan" | "cast_image" | "script" | "segment_prompt" | "segment_video" | "render";
+    kind: "bible" | "plan" | "cast_image" | "cast_extract" | "script" | "segment_prompt" | "segment_video" | "render" | "compose";
     status: "queued" | "running" | "succeeded" | "failed" | "canceled";
     label: string;
     error?: string;
@@ -311,6 +320,7 @@ export type DramaEpisodeDetail = {
     chapters: DramaChapterRef[];
     jobs: DramaJob[];
     scriptJob?: DramaJob;
+    composeJob?: DramaJob;
     /** 原文台词与镜头台词的逐句核对；章节被多集共用或还没有镜头时不提供。 */
     dialogueCheck?: DramaDialogueCheck;
 };
@@ -319,7 +329,7 @@ export type DramaEpisodeDetail = {
 export type DramaDialogueCheck = { sourceLines: number; missingCount: number; missing: string[] };
 
 /** 剧情段视频提示词的撰写状态：none 无记录、stale 镜头或设定改过后过期。 */
-export type DramaSegmentPromptStatus = "none" | "queued" | "running" | "ready" | "stale" | "failed";
+export type DramaSegmentPromptStatus = "none" | "queued" | "running" | "ready" | "stale" | "failed" | "conflict" | "review";
 
 /** 一个剧情段；videoPrompt 为生效内容（手动改写优先），generated 为模型撰写的版本。 */
 export type DramaSegment = {
@@ -379,6 +389,7 @@ export type DramaSegmentRequest = {
     generateAudio: boolean;
     firstFrameResourceId?: string;
     firstFramePending: boolean;
+    tailFrameAsReference?: boolean;
     references: DramaSegmentReference[];
     /** 本段最多随请求发送的参考图张数（已扣除首帧并受每段上限约束）；modelMaxImages 是模型声明的图片上限。 */
     referenceCapacity: number;
@@ -408,6 +419,11 @@ export type DramaCast = {
     description: string;
     appearance: string;
     imagePrompt?: string;
+    imageStyleId?: string;
+    imageStyleName?: string;
+    imageStylePrompt?: string;
+    sourceProjectId?: string;
+    sourceCastId?: string;
     voiceInstructions: string;
     importance: number;
     imageResourceId?: string;
@@ -457,7 +473,7 @@ export type DramaModelOption = {
     priceLabel: string;
     maxVideoSeconds?: number;
     maxAudios?: number;
-    /** 仅视频模型：支持图生视频，可用于尾帧续接；为 false 时只能并行出片。 */
+    /** 仅视频模型：能使用上一段尾帧续接。 */
     tailFrameChain?: boolean;
     /** 仅视频模型：能准确给出的作品画幅；不含作品画幅的模型不能用于该作品。 */
     videoRatios?: string[];
@@ -520,6 +536,12 @@ export type DramaDraft = {
     form: DramaDraftForm;
 };
 
+function withoutRestrictedSkillRefs<T extends { settings?: Partial<DramaSettings> }>(input: T): T {
+    if (hasSkillLibraryAccess() || !input.settings) return input;
+    const { bibleSkill, scriptSkill, promptSkill, ...settings } = input.settings;
+    return { ...input, settings };
+}
+
 const base = (projectId: string) => `/dramas/${encodeURIComponent(projectId)}`;
 
 export function listDramas(params: { page: number; pageSize: number; q?: string; status?: DramaStatus }, signal?: AbortSignal) {
@@ -535,11 +557,11 @@ export function getDramaModels() {
 }
 
 export function estimateDrama(input: { chapterCount: number; wordCount: number; settings: Partial<DramaSettings>; episodeMode?: DramaEpisodeMode }, signal?: AbortSignal) {
-    return http.post<DramaEstimate>("/dramas/estimate", input, { signal });
+    return http.post<DramaEstimate>("/dramas/estimate", withoutRestrictedSkillRefs(input), { signal });
 }
 
 export function createDrama(input: CreateDramaInput) {
-    return http.post<DramaSummary>("/dramas", input, { timeout: 120_000 });
+    return http.post<DramaSummary>("/dramas", withoutRestrictedSkillRefs(input), { timeout: 120_000 });
 }
 
 export function getDramaDraft(projectId: string, signal?: AbortSignal) {
@@ -548,7 +570,7 @@ export function getDramaDraft(projectId: string, signal?: AbortSignal) {
 
 /** 整体替换从未开工的草稿；start=true 时替换后直接开工。 */
 export function saveDramaDraft(projectId: string, input: CreateDramaInput) {
-    return http.put<DramaSummary>(`${base(projectId)}/draft`, input, { timeout: 120_000 });
+    return http.put<DramaSummary>(`${base(projectId)}/draft`, withoutRestrictedSkillRefs(input), { timeout: 120_000 });
 }
 
 export function deleteDrama(projectId: string) {
@@ -560,7 +582,7 @@ export function getDrama(projectId: string, signal?: AbortSignal) {
 }
 
 export function updateDramaSettings(projectId: string, input: { settings?: DramaSettings; budgetMicrocredits?: number }) {
-    return http.patch<DramaSummary>(`${base(projectId)}/settings`, input);
+    return http.patch<DramaSummary>(`${base(projectId)}/settings`, withoutRestrictedSkillRefs(input));
 }
 
 export function startDrama(projectId: string) {
@@ -644,6 +666,11 @@ export function rescriptDramaEpisode(projectId: string, episodeId: string) {
     return http.post<DramaEpisodeDetail>(`${base(projectId)}/episodes/${encodeURIComponent(episodeId)}/rescript`);
 }
 
+/** 手动重新合成本集成片：各段视频就绪后按实测时长拼接；合成中可重复点，幂等。 */
+export function composeDramaEpisode(projectId: string, episodeId: string) {
+    return http.post<DramaEpisodeDetail>(`${base(projectId)}/episodes/${encodeURIComponent(episodeId)}/compose`);
+}
+
 export type DramaShotPatch = Partial<Pick<DramaShot, "speaker" | "dialogue" | "action" | "shotSize" | "camera" | "imagePrompt" | "videoPrompt">> & { transition?: DramaTransition; durationSeconds?: number };
 
 /** 让文本模型（重新）撰写指定剧情段的完整视频提示词。 */
@@ -669,7 +696,23 @@ export function listDramaCast(projectId: string, signal?: AbortSignal) {
     return http.get<{ cast: DramaCast[] }>(`${base(projectId)}/cast`, { signal });
 }
 
-export type DramaCastPatch = Partial<Pick<DramaCast, "name" | "appearance" | "description" | "voiceInstructions" | "locked">> & { aliases?: string[] };
+export type DramaCastImageStyle = Pick<DramaCast, "imageStyleId" | "imageStyleName" | "imageStylePrompt">;
+export type CreateDramaCastInput = DramaCastImageStyle & { kind: DramaCastKind; name: string; appearance: string; description?: string; imagePrompt?: string };
+
+export function createDramaCast(projectId: string, input: CreateDramaCastInput) {
+    return http.post<{ cast: DramaCast }>(`${base(projectId)}/cast`, input);
+}
+
+export function importDramaCast(projectId: string, input: { sourceProjectId: string; castIds: string[]; matchByName: boolean; replaceExisting: boolean }) {
+    return http.post<{ imported: number; skipped: number; cast: DramaCast[] }>(`${base(projectId)}/cast/import`, input);
+}
+
+/** 按外观、独立风格和参考图方案编排提示词；不保存，也不调用模型。 */
+export function rebuildDramaCastImagePrompt(projectId: string, castId: string, input: DramaCastImageStyle & { appearance?: string }) {
+    return http.post<{ imagePrompt: string }>(`${base(projectId)}/cast/${encodeURIComponent(castId)}/image-prompt`, input);
+}
+
+export type DramaCastPatch = Partial<Pick<DramaCast, "name" | "appearance" | "description" | "voiceInstructions" | "locked" | "imagePrompt">> & DramaCastImageStyle & { aliases?: string[] };
 
 export function updateDramaCast(projectId: string, castId: string, patch: DramaCastPatch) {
     return http.patch<{ cast: DramaCast }>(`${base(projectId)}/cast/${encodeURIComponent(castId)}`, patch);
@@ -697,11 +740,11 @@ export function clearDramaCastVoice(projectId: string, castId: string, restyleSe
 }
 
 /** 保存造型草稿，不自动生图；imagePrompt 留空按外观描述生成，章节从 1 起，0 不限。 */
-export function addDramaCastLook(projectId: string, castId: string, input: { lookName: string; appearance: string; imagePrompt?: string; fromChapter?: number; toChapter?: number }) {
+export function addDramaCastLook(projectId: string, castId: string, input: DramaCastImageStyle & { lookName: string; appearance: string; imagePrompt?: string; fromChapter?: number; toChapter?: number }) {
     return http.post<{ look: DramaCast }>(`${base(projectId)}/cast/${encodeURIComponent(castId)}/looks`, input);
 }
 
-export function updateDramaCastLook(projectId: string, lookId: string, input: { lookName?: string; appearance?: string; imagePrompt?: string; fromChapter?: number; toChapter?: number; restyleSegments?: boolean }) {
+export function updateDramaCastLook(projectId: string, lookId: string, input: DramaCastImageStyle & { lookName?: string; appearance?: string; imagePrompt?: string; fromChapter?: number; toChapter?: number; restyleSegments?: boolean }) {
     return http.patch<{ look: DramaCast; affectedSegments: number }>(`${base(projectId)}/looks/${encodeURIComponent(lookId)}`, input);
 }
 
@@ -758,10 +801,14 @@ export type DramaTake = {
     source: DramaTakeSource;
     current: boolean;
     createdAt: string;
+    /** 产出该版本的任务模型标识（若能关联到任务）。 */
+    model?: string;
 };
 
 export type DramaSegmentAdoptResult = {
     adopted: boolean;
+    /** 把历史版本设为当前时为 true；采用画布视频时仍用 adopted。 */
+    restored?: boolean;
     unchanged?: boolean;
     /** cascade 时重新排队的后续段数量。 */
     requeued: number;
@@ -792,4 +839,9 @@ export function listDramaTakes(projectId: string, ownerId: string, kind: DramaTa
 /** 把画布视频采用为剧情段当前视频；默认只换本段，cascade 时后续已生成的段重新排队生成。 */
 export function adoptDramaSegmentVideo(projectId: string, episodeId: string, segmentIndex: number, input: { resourceId: string; taskId?: string; cascade: boolean; expectedRevision?: number }) {
     return http.put<DramaSegmentAdoptResult>(`${base(projectId)}/episodes/${encodeURIComponent(episodeId)}/segments/${segmentIndex}/video`, input, { timeout: 300_000 });
+}
+
+/** 把本段已有的视频版本设为当前播放版本；不新建版本、不级联后续段、不重新生成。 */
+export function restoreDramaSegmentTake(projectId: string, episodeId: string, segmentIndex: number, input: { takeId: string; expectedRevision?: number }) {
+    return http.put<DramaSegmentAdoptResult>(`${base(projectId)}/episodes/${encodeURIComponent(episodeId)}/segments/${segmentIndex}/current-take`, input, { timeout: 300_000 });
 }

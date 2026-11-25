@@ -38,12 +38,14 @@ func (r *Repository) UpdateChannelModelSalePrices(items []model.ChannelModel) er
 				result = tx.Model(&model.ChannelModelPriceTier{}).
 					Where("id = ? AND channel_model_id = ? AND price_version = ? AND updated_at = ?", tier.ID, item.ID, tier.PriceVersion, tier.UpdatedAt).
 					Updates(map[string]any{
-						"unit_price_microcredits":              tier.UnitPriceMicrocredits,
-						"input_token_price_microcredits":       tier.InputTokenPriceMicrocredits,
-						"output_token_price_microcredits":      tier.OutputTokenPriceMicrocredits,
-						"cached_token_price_microcredits":      tier.CachedTokenPriceMicrocredits,
-						"cache_write_token_price_microcredits": tier.CacheWriteTokenPriceMicrocredits,
-						"price_version":                        tier.PriceVersion + 1,
+						"unit_price_microcredits":                         tier.UnitPriceMicrocredits,
+						"input_token_price_microcredits":                  tier.InputTokenPriceMicrocredits,
+						"output_token_price_microcredits":                 tier.OutputTokenPriceMicrocredits,
+						"cached_token_price_microcredits":                 tier.CachedTokenPriceMicrocredits,
+						"cache_write_token_price_microcredits":            tier.CacheWriteTokenPriceMicrocredits,
+						"reference_video_unit_price_microcredits":         tier.ReferenceVideoUnitPriceMicrocredits,
+						"reference_video_output_token_price_microcredits": tier.ReferenceVideoOutputTokenPriceMicrocredits,
+						"price_version":                                   tier.PriceVersion + 1,
 					})
 				if result.Error != nil {
 					return result.Error
@@ -66,6 +68,7 @@ func (r *Repository) UpdateChannelModelProtocols(items []model.ChannelModel) err
 				Where("id = ? AND channel_id = ? AND updated_at = ?", item.ID, item.ChannelID, item.UpdatedAt).
 				Updates(map[string]any{
 					"protocol":               item.Protocol,
+					"protocol_release":       item.ProtocolRelease,
 					"capability_config_json": item.CapabilityConfigJSON,
 					"capability_version":     item.CapabilityVersion,
 				})

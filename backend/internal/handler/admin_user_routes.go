@@ -26,8 +26,7 @@ func registerAdminUserRoutes(r *gin.RouterGroup, svc *service.Service) {
 		}
 		users, err := svc.AdminUsers(user, service.AdminListQuery{
 			Keyword: c.Query("keyword"), Type: c.Query("role"), Status: c.Query("status"), Group: c.Query("group"),
-			CompanyID: c.Query("companyId"), CompanyRole: c.Query("companyRole"),
-			ExcludeCompanyEmployees: c.Query("excludeCompanyEmployees") == "true", Page: page, Limit: limit,
+			Page: page, Limit: limit,
 		})
 		if err != nil {
 			failService(c, err)
@@ -98,6 +97,19 @@ func registerAdminUserRoutes(r *gin.RouterGroup, svc *service.Service) {
 			return
 		}
 		ok(c, result)
+	})
+	r.DELETE("/admin/users/:id/agent-history", func(c *gin.Context) {
+		user, err := currentUser(c, svc)
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		freedBytes, err := svc.AdminClearAgentHistory(user, c.Param("id"))
+		if err != nil {
+			failService(c, err)
+			return
+		}
+		ok(c, gin.H{"freedBytes": freedBytes})
 	})
 	r.GET("/admin/users/:id/ledger", func(c *gin.Context) {
 		user, err := currentUser(c, svc)

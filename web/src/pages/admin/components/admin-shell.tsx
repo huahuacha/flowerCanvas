@@ -22,12 +22,14 @@ import {
     Infinity as InfinityIcon,
     KeyRound,
     Layers3,
+    LibraryBig,
     LogIn,
     MailSearch,
     Mail,
     Megaphone,
     MessageSquareText,
     Moon,
+    MousePointerClick,
     Paintbrush,
     Palette,
     PanelLeftClose,
@@ -57,6 +59,7 @@ import { publishWorkspaceSidebarCollapsed, readWorkspaceSidebarCollapsed, subscr
 import { AppFeedbackProvider } from "@/components/layout/app-feedback";
 import { cn } from "@/lib/utils";
 import { useThemeStore } from "@/stores/use-theme-store";
+import { useGlobalAgentStore } from "@/stores/use-global-agent-store";
 import { useUserStore } from "@/stores/use-user-store";
 import { useAppearanceStore } from "@/stores/use-appearance-store";
 import { getIsolatedAdminAntTheme } from "../theme/admin-ant-theme";
@@ -87,6 +90,7 @@ const adminNavigation: AdminNavigationGroup[] = [
         label: "运营监控",
         items: [
             { path: "/admin", keywords: "统计 仪表盘 收入 使用量 dashboard analytics", label: "运行总览", shortLabel: "总览", icon: <BarChart3 className="size-4" /> },
+            { path: "/admin/traffic", keywords: "访问 访客 页面 操作 流量 traffic", label: "访问统计", shortLabel: "访问", icon: <MousePointerClick className="size-4" /> },
             { path: "/admin/logs", keywords: "请求 日志 错误 调用 计费 退款", label: "请求明细", shortLabel: "请求", icon: <FileClock className="size-4" /> },
             { path: "/admin/login-logs", keywords: "登录 记录 IP 安全", label: "登录日志", shortLabel: "登录", icon: <LogIn className="size-4" /> },
             { path: "/admin/email-logs", keywords: "邮件 发送 记录 验证码", label: "邮件记录", shortLabel: "邮件", icon: <MailSearch className="size-4" /> },
@@ -98,7 +102,7 @@ const adminNavigation: AdminNavigationGroup[] = [
         label: "用户与运营",
         items: [
             { path: "/admin/users", keywords: "账号 用户 权限 封禁 密码", label: "用户管理", shortLabel: "用户", icon: <UsersRound className="size-4" /> },
-            { path: "/admin/companies", keywords: "公司 企业 客户 成员 员工 开户", label: "公司管理", shortLabel: "公司", icon: <Building2 className="size-4" /> },
+            { path: "/admin/teams", keywords: "团队 小组 所有者 成员", label: "团队管理", shortLabel: "团队", icon: <Building2 className="size-4" /> },
             { path: "/admin/user-groups", keywords: "用户组 倍率 VIP 定价", label: "用户分组", shortLabel: "分组", icon: <Crown className="size-4" /> },
             { path: "/admin/credit-operations", keywords: "积分 余额 账务 退款", label: "积分运营", shortLabel: "积分", icon: <Coins className="size-4" /> },
             { path: "/admin/payments", keywords: "支付 充值 订单 商品 支付宝 微信", label: "支付充值", shortLabel: "支付", icon: <CreditCard className="size-4" /> },
@@ -115,7 +119,7 @@ const adminNavigation: AdminNavigationGroup[] = [
         label: "模型与渠道",
         items: [
             { path: "/admin/channels", keywords: "渠道 模型 API Key 密钥 上游 定价 协议", label: "渠道与模型", shortLabel: "渠道", icon: <RadioTower className="size-4" /> },
-            { path: "/admin/fixed-channels", keywords: "固定渠道 New API 公司 上游 模型", label: "固定渠道", shortLabel: "固定", icon: <KeyRound className="size-4" /> },
+            { path: "/admin/fixed-channels", keywords: "固定渠道 New API 授权 上游 模型", label: "固定渠道", shortLabel: "固定", icon: <KeyRound className="size-4" /> },
             { path: "/admin/models", keywords: "前台模型 逻辑模型 能力", label: "前台模型", shortLabel: "模型", icon: <Layers3 className="size-4" />, requireFeature: "frontendModelsEnabled" },
         ],
     },
@@ -128,9 +132,12 @@ const adminNavigation: AdminNavigationGroup[] = [
             { path: "/admin/pose-library", keywords: "姿势 动作 pose", label: "姿势库", shortLabel: "姿势", icon: <PersonStanding className="size-4" /> },
             { path: "/admin/settings/drawing-engine", keywords: "绘图 画板 引擎", label: "绘图工具", shortLabel: "绘图", icon: <Paintbrush className="size-4" /> },
             { path: "/admin/plugins", keywords: "插件 扩展 协议 plugin", label: "插件管理", shortLabel: "插件", icon: <PlugZap className="size-4" /> },
+            { path: "/admin/mcp", keywords: "MCP 工具 连接 市场 Agent", label: "MCP 管理", shortLabel: "MCP", icon: <PlugZap className="size-4" /> },
             { path: "/admin/skills", keywords: "技能 skill", label: "技能管理", shortLabel: "技能", icon: <Wand2 className="size-4" /> },
             { path: "/admin/skill-curation", keywords: "技能 分类 推荐", label: "技能分类", shortLabel: "分类", icon: <Sparkles className="size-4" /> },
             { path: "/admin/resources", keywords: "资源 文件 素材 存储 清理", label: "存储资源", shortLabel: "资源", icon: <Database className="size-4" /> },
+            { path: "/admin/official-assets", keywords: "官方 素材 角色卡 预设 公共资产", label: "官方素材库", shortLabel: "素材", icon: <LibraryBig className="size-4" /> },
+            { path: "/admin/official-asset-recommendations", keywords: "素材 推荐 审核 角色卡 退回 发布", label: "素材推荐审核", shortLabel: "审核", icon: <Inbox className="size-4" /> },
         ],
     },
     {
@@ -404,6 +411,9 @@ function MobileAdminNavigation() {
                 </button>
             </Dropdown>
             <div className="flex shrink-0 items-center gap-1">
+                <button type="button" className="admin-mobile-navigation-action admin-mobile-agent-entry" aria-label="打开 Agent 助手" title="打开 Agent 助手" onClick={() => useGlobalAgentStore.getState().openAgent()}>
+                    <Bot className="size-4" />
+                </button>
                 <AdminTooltip title="返回创作台">
                     <Link to="/" className="admin-mobile-navigation-action" aria-label="返回创作台">
                         <Home className="size-4" aria-hidden="true" />

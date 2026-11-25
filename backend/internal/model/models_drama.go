@@ -51,8 +51,11 @@ const (
 	DramaJobBible     = "bible"
 	DramaJobPlan      = "plan"
 	DramaJobCastImage = "cast_image"
-	DramaJobScript    = "script"
-	DramaJobRender    = "render"
+	// DramaJobCastExtract 从本集原文与分镜补全后出现、尚无外貌的角色/道具/场景，不覆盖已有设定。
+	DramaJobCastExtract = "cast_extract"
+	DramaJobScript      = "script"
+	DramaJobRender      = "render"
+	DramaJobCompose     = "compose"
 	// DramaJobSegmentPrompt 为一个剧情段撰写完整视频提示词；ShotID 存放 drama_segments.id。
 	DramaJobSegmentPrompt = "segment_prompt"
 	// DramaJobSegmentVideo 为一个剧情段生成整段视频；ShotID 存放 drama_segments.id。
@@ -87,7 +90,7 @@ type DramaProduction struct {
 type DramaCast struct {
 	Revision    int64  `json:"revision"`
 	ID          string `json:"id" gorm:"primaryKey;size:36"`
-	ProjectID   string `json:"projectId" gorm:"index;size:36;index:idx_drama_casts_project_kind,priority:1"`
+	ProjectID   string `json:"projectId" gorm:"index;size:36;index:idx_drama_casts_project_kind,priority:1;index:idx_drama_cast_source,unique,priority:1,where:source_cast_id <> ''"`
 	Kind        string `json:"kind" gorm:"size:16;index:idx_drama_casts_project_kind,priority:2"`
 	Name        string `json:"name" gorm:"size:120"`
 	AliasesJSON string `json:"aliasesJson" gorm:"type:text"`
@@ -95,6 +98,13 @@ type DramaCast struct {
 	Description string `json:"description" gorm:"type:text"`
 	Appearance  string `json:"appearance" gorm:"type:text"`
 	ImagePrompt string `json:"imagePrompt" gorm:"type:text"`
+	// 三个画风字段全空时继承作品画风；造型与基础设定分别选择。
+	ImageStyleID     string `json:"imageStyleId" gorm:"size:64"`
+	ImageStyleName   string `json:"imageStyleName" gorm:"size:120"`
+	ImageStylePrompt string `json:"imageStylePrompt" gorm:"type:text"`
+	// 导入只保留来源关联，编辑目标记录不会回写来源作品。
+	SourceProjectID string `json:"sourceProjectId,omitempty" gorm:"size:36"`
+	SourceCastID    string `json:"sourceCastId,omitempty" gorm:"size:36;index:idx_drama_cast_source,unique,priority:2,where:source_cast_id <> ''"`
 	// VoiceInstructions 是声线描述（音色、语速、情绪），写进视频提示词，由视频模型同步生成对白。
 	VoiceInstructions string `json:"voiceInstructions" gorm:"type:text"`
 	// VoiceProfileID 是用户为角色指定的声音（声音库条目）；VoiceSampleResourceID 是它的样本音频，
@@ -185,6 +195,10 @@ type DramaShot struct {
 
 // DramaSegment 是视频生成单位：一段一次调用视频模型，台词、音效与镜头切换都由视频模型在一个视频里完成。
 // 段由镜头的 SegmentIndex 决定，重新改编剧本时随镜头一起重建。
+// DramaPromptConflict keeps the original prompt until the user resolves script changes.
+const DramaPromptConflict = "conflict"
+const DramaPromptReview = "review"
+
 type DramaSegment struct {
 	PromptSeconds int    `json:"promptSeconds"`
 	Revision      int64  `json:"revision"`

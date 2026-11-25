@@ -25,7 +25,7 @@ func newTestFeedbackHandler(t *testing.T) (*gin.Engine, *model.User, *model.User
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&model.User{}, &model.UserFeedback{}, &model.AuthSession{}, &model.Company{}, &model.CompanyMember{}); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.UserFeedback{}, &model.AuthSession{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 

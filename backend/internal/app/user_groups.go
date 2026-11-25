@@ -51,6 +51,7 @@ type resolvedUserGroup struct {
 // userGroupAccess 是一次请求的分组上下文。bypassVisibility 只放开渠道可见性（管理员和内部能力探测），
 // 价格仍按 group 计算。
 type userGroupAccess struct {
+	teamWorkspace    bool
 	userID           string
 	group            *resolvedUserGroup
 	bypassVisibility bool
@@ -643,6 +644,15 @@ func userGroupAuditMetadata(group *model.UserGroup, channelIDs []string) map[str
 		"pointsPerUsdMicrocredits": group.PointsPerUSD, "pointsPerCnyMicrocredits": group.PointsPerCNY,
 		"allChannels": group.AllChannels, "channelIds": channelIDs, "badgeStyle": group.BadgeStyle,
 	}
+}
+
+// ModelCatalogForGuest 只开放默认分组的脱敏目录，不能用作任务或报价的身份上下文。
+func (s *Service) ModelCatalogForGuest() (*ModelCatalogResponse, error) {
+	group, err := s.resolvedUserGroup(model.DefaultUserGroupCode)
+	if err != nil {
+		return nil, err
+	}
+	return s.ModelCatalog(&userGroupAccess{group: group}, nil)
 }
 
 // ModelCatalogForUser 是 HTTP 目录入口：按登录用户的分组过滤渠道并换算价格。

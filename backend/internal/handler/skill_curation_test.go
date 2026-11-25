@@ -27,7 +27,7 @@ func TestSkillCurationHTTP(t *testing.T) {
 	}
 	sqlDB.SetMaxOpenConns(1)
 	defer sqlDB.Close()
-	if err := db.AutoMigrate(&model.User{}, &model.AuthSession{}, &model.Company{}, &model.CompanyMember{}, &model.Skill{}, &model.SkillCurationSetting{}, &model.SkillCurationCategory{}, &model.SkillCurationAssignment{}, &model.AdminAuditEvent{}); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.AuthSession{}, &model.Skill{}, &model.SkillCurationSetting{}, &model.SkillCurationCategory{}, &model.SkillCurationAssignment{}, &model.AdminAuditEvent{}); err != nil {
 		t.Fatal(err)
 	}
 	db.Create(&model.SkillCurationSetting{ID: 1})
@@ -45,6 +45,7 @@ func TestSkillCurationHTTP(t *testing.T) {
 		{"user", "GET", "/api/admin/skill-curation", "", 403},
 		{"user", "PUT", "/api/admin/skill-curation", `{"expectedRevision":0,"enabled":true}`, 403},
 		{"user", "GET", "/api/skills/curation", "", 200},
+		{"admin", "GET", "/api/skills/curation", "", 200},
 		{"admin", "PUT", "/api/admin/skill-curation", `{"enabled":true}`, 400},
 		{"admin", "PUT", "/api/admin/skill-curation", `{"expectedRevision":0,"enabled":true,"requestId":"forged"}`, 400},
 		{"admin", "PUT", "/api/admin/skill-curation", `{"expectedRevision":0,"enabled":true} {}`, 400},

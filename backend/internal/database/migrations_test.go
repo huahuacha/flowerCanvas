@@ -139,6 +139,15 @@ func TestMigrateSchemaRecordsAndValidatesVersion(t *testing.T) {
 	if !db.Migrator().HasTable(&model.CloudAgentGeminiCache{}) {
 		t.Fatal("schema migration v36 did not create Gemini cache table")
 	}
+	if !db.Migrator().HasTable(&model.UserChannelCredential{}) ||
+		!db.Migrator().HasColumn(&model.ModelChannel{}, "CredentialSource") ||
+		!db.Migrator().HasColumn(&model.RouteAttempt{}, "SubmissionCredentialCipher") {
+		t.Fatal("personal fixed channel schema is incomplete")
+	}
+	if db.Migrator().HasTable("companies") || db.Migrator().HasTable("company_members") ||
+		!db.Migrator().HasTable(&model.Team{}) || !db.Migrator().HasTable(&model.TeamMembership{}) {
+		t.Fatal("fresh schema should only create official teams and memberships")
+	}
 	if err := MigrateSchema(db); err != nil {
 		t.Fatalf("migration should be idempotent: %v", err)
 	}

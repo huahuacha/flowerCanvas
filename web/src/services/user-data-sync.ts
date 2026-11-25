@@ -304,6 +304,11 @@ function liveCanvasIfUnchanged(id: string, snapshot: CanvasProject | null | unde
 }
 
 export async function loadCanvasProjectForEditing(id: string, options: { onLoad?: (project: CanvasProject) => void } = {}) {
+    const draft = useCanvasStore.getState().getDraftProject(id);
+    if (draft) {
+        options.onLoad?.(draft);
+        return draft;
+    }
     const mode = "normal";
     const existing = remoteProjectLoadPromises.get(id);
     const existingRequest = existing?.promise;
@@ -575,6 +580,7 @@ export async function loadAssetLibraryPage(options: Parameters<typeof listRemote
 
 function acceptRemoteAssets(remoteAssets: Asset[], refresh = false) {
     const assets = parseAssetRecordList(remoteAssets);
+    if (!assets.length) return;
     const current = new Map(useAssetStore.getState().assets.map((asset) => [asset.id, asset]));
     for (const asset of assets) {
         const local = current.get(asset.id);
@@ -999,7 +1005,10 @@ export async function deleteAssetsWithRemoteSync(ids: string[]) {
 
 export async function deleteCanvasProjectsWithRemoteSync(ids: string[]) {
     const epoch = sessionEpoch;
-    const projectIds = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+    const requestedIds = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+    const draftIds = requestedIds.filter((id) => useCanvasStore.getState().getDraftProject(id));
+    if (draftIds.length) useCanvasStore.getState().deleteProjects(draftIds);
+    const projectIds = requestedIds.filter((id) => !draftIds.includes(id));
     if (!projectIds.length) return;
     // 删除只依赖画布 ID，跳过编辑加载，避免关联素材的合同校验阻塞删除。
     await withRemoteUserDataSyncExclusive(async () => {
@@ -1113,6 +1122,52 @@ export async function deleteCanvasProjectsWithRemoteSync(ids: string[]) {
     });
 }
 
+/** Persist asset records without replaying unrelated pending canvas edits. */
+export function saveRemoteAssetsNow() {
+    const epoch = sessionEpoch;
+    if (!activeRemoteUserId) throw new Error("云端同步会话尚未建立，当前素材已保留在本地");
+    requireRemoteUserDataBaseline();
+    return withRemoteUserDataSyncExclusive(async () => {
+        requireRemoteUserDataBaseline();
+        if (epoch !== sessionEpoch) throw new Error("账号已切换，已停止旧会话保存");
+        await saveRemoteUserDataBatch(new Map<string, string>(), { projectId: [] });
+    });
+}
+
+/** Explicitly save a selected local-only asset before submitting it for review. */
+export function ensureAssetAvailableForRecommendation(assetId: string) {
+    const epoch = sessionEpoch;
+    if (!activeRemoteUserId) throw new Error("请先登录后再推荐素材");
+    requireRemoteUserDataBaseline();
+    return withRemoteUserDataSyncExclusive(async () => {
+        requireRemoteUserDataBaseline();
+        if (epoch !== sessionEpoch) throw new Error("账号已切换，请重新提交推荐");
+        try {
+            const { asset: remote } = await getRemoteAsset(assetId);
+            if (epoch !== sessionEpoch) throw new Error("账号已切换，请重新提交推荐");
+            if (remote.status === "archived") throw new Error("素材不存在或已移入回收站，请刷新后重试");
+            return;
+        } catch (error) {
+            if (!(error instanceof ApiError) || error.status !== 404) throw error;
+        }
+        const asset = useAssetStore.getState().assets.find((item) => item.id === assetId);
+        if (!asset || asset.status === "archived") throw new Error("素材不存在或已移入回收站，请刷新后重试");
+        const prepared = await ensureRemoteResourceReferences(assetForRemoteSync(asset), new Map<string, string>());
+        if (epoch !== sessionEpoch) throw new Error("账号已切换，请重新提交推荐");
+        if (useAssetStore.getState().assets.find((item) => item.id === assetId) !== asset) throw new Error("素材正在更新，请稍后重新提交");
+        // Check again in case another sync created the record during upload.
+        try {
+            await getRemoteAsset(assetId);
+        } catch (error) {
+            if (!(error instanceof ApiError) || error.status !== 404) throw error;
+            await upsertRemoteAsset(prepared);
+            if (epoch !== sessionEpoch) throw new Error("账号已切换，请重新提交推荐");
+            acknowledgedAssets.set(assetId, asset);
+            verifiedAssets.add(assetId);
+        }
+    });
+}
+
 export async function saveRemoteUserDataNow(input?: string | readonly string[]) {
     const key = `${sessionEpoch}:${getActiveUserScope()}:${input === undefined ? "all" : JSON.stringify(typeof input === "string" ? [input] : [...input].sort())}`;
     await waitForCanvasSync(syncSingleFlight(key, () => performRemoteUserDataSave(input)));
@@ -1120,6 +1175,8 @@ export async function saveRemoteUserDataNow(input?: string | readonly string[]) 
 
 export async function prepareCanvasForCloudAction(id: string) {
     try {
+        useCanvasStore.getState().materializeDraft(id);
+        await flushCanvasStorePersistence();
         await saveRemoteUserDataNow(id);
     } catch (error) {
         // Callers retain their input without adding sync errors to task UI.

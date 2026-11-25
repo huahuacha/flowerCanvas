@@ -20,6 +20,18 @@ func ProfileCredentialHash(passwordHash string) string {
 	return hex.EncodeToString(v[:])
 }
 
+// LockUserForUpdate locks an account inside the caller's transaction.
+func (r *Repository) LockUserForUpdate(userID string) (*model.User, error) {
+	if err := lockProfileUser(r.db, userID); err != nil {
+		return nil, err
+	}
+	var user model.User
+	if err := r.db.Clauses(clause.Locking{Strength: "UPDATE"}).First(&user, "id = ?", userID).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
 func lockProfileUser(tx *gorm.DB, userID string) error {
 	if tx.Dialector.Name() == "sqlite" {
 		return tx.Model(&model.User{}).Where("id = ?", userID).UpdateColumn("updated_at", gorm.Expr("updated_at")).Error
@@ -43,16 +55,6 @@ func (r *Repository) CreateAuthSessionForUser(expected *model.User, session *mod
 		}
 		if current.Status != model.UserStatusActive || current.PasswordHash != expected.PasswordHash || current.Email != expected.Email {
 			return ErrProfileAuthorization
-		}
-		repo := New(tx)
-		member, err := repo.CompanyMemberByUserID(current.ID)
-		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
-		if member != nil {
-			if err := repo.requireActiveCompany(member.CompanyID); err != nil {
-				return err
-			}
 		}
 		if err := tx.Create(session).Error; err != nil {
 			return err
@@ -146,6 +148,10 @@ func (r *Repository) ChangeProfileEmail(expected *model.User, session *model.Aut
 }
 
 func (r *Repository) ReauthenticateLinuxDOSession(expected *model.User, session *model.AuthSession, subject string, now time.Time) error {
+	return r.ReauthenticateOAuthSession(expected, session, "linuxdo", subject, now)
+}
+
+func (r *Repository) ReauthenticateOAuthSession(expected *model.User, session *model.AuthSession, provider, subject string, now time.Time) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		if err := lockProfileUser(tx, expected.ID); err != nil {
 			return err
@@ -154,7 +160,7 @@ func (r *Repository) ReauthenticateLinuxDOSession(expected *model.User, session 
 			return err
 		}
 		var count int64
-		if err := tx.Model(&model.UserIdentity{}).Where("provider = ? AND subject = ? AND user_id = ?", "linuxdo", subject, expected.ID).Count(&count).Error; err != nil {
+		if err := tx.Model(&model.UserIdentity{}).Where("provider = ? AND subject = ? AND user_id = ?", provider, subject, expected.ID).Count(&count).Error; err != nil {
 			return err
 		}
 		if count != 1 {
@@ -170,6 +176,31 @@ func (r *Repository) ReauthenticateLinuxDOSession(expected *model.User, session 
 		return nil
 	})
 }
+
+// 锁定账号及会话后绑定，禁止替换已有身份或抢占其他账号的身份。
+func (r *Repository) BindOAuthIdentity(expected *model.User, session *model.AuthSession, identity *model.UserIdentity) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if identity.UserID != expected.ID {
+			return ErrProfileAuthorization
+		}
+		if err := lockProfileUser(tx, expected.ID); err != nil {
+			return err
+		}
+		if err := profileAuthorization(tx, expected, session, time.Now(), false); err != nil {
+			return err
+		}
+		var count int64
+		if err := tx.Model(&model.UserIdentity{}).Where("provider = ? AND (user_id = ? OR subject = ?)", identity.Provider, expected.ID, identity.Subject).Count(&count).Error; err != nil {
+			return err
+		}
+		if count != 0 {
+			return ErrOAuthIdentityBound
+		}
+		return tx.Create(identity).Error
+	})
+}
+
+var ErrOAuthIdentityBound = errors.New("该登录身份或当前账号已完成绑定")
 
 func (r *Repository) LinuxDOReauthenticationState(stateHash string) (bool, error) {
 	var state model.OAuthState

@@ -94,6 +94,13 @@ func (r *Repository) AdminSystemChannel(id string) (*model.ModelChannel, error) 
 	return &channel, nil
 }
 
+func (r *Repository) HistoricalSystemChannelCredentialSource(id string) (model.ChannelCredentialSource, error) {
+	var channel model.ModelChannel
+	err := r.db.Unscoped().Select("credential_source").
+		Take(&channel, "id = ? AND scope = ?", id, model.ChannelScopeSystem).Error
+	return channel.CredentialSource, err
+}
+
 func (r *Repository) DeleteSystemChannel(id string) error {
 	now := time.Now()
 	return r.db.Transaction(func(tx *gorm.DB) error {
@@ -132,9 +139,9 @@ func (r *Repository) ApiCallLogs(userID string, admin bool, limit int) ([]model.
 	}
 	query := r.db.Order("created_at desc").Limit(limit)
 	if !admin {
-		query = query.Where("user_id = ?", userID)
+		query = query.Where("user_id = ?", userID).Where("NOT EXISTS (SELECT 1 FROM billing_orders b WHERE b.id = api_call_logs.billing_order_id AND b.team_id <> '')")
 	}
-	err := query.Omit("RequestBody", "ResponseBody").Find(&logs).Error
+	err := query.Omit("RequestBody", "ResponseBody", "GenerationContentJSON").Find(&logs).Error
 	return logs, err
 }
 
